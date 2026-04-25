@@ -55,9 +55,24 @@ describe("createMdviewServer", () => {
     assert.match(res.body, /<h1[^>]*>Title<\/h1>/);
   });
 
-  test("HTML 本体にテーマ切替のトグルボタンが含まれる", async () => {
+  test("HTML 本体にテーマ切替のトリガーボタンが含まれる", async () => {
     const res = await fetchText(`${baseUrl}/`);
     assert.match(res.body, /id="theme-toggle"/);
+    // ARIA 属性: メニューを持つボタンであることを示す
+    assert.match(res.body, /aria-haspopup="menu"/);
+    assert.match(res.body, /aria-expanded="(true|false)"/);
+  });
+
+  test("HTML 本体にテーマ選択メニューが含まれる", async () => {
+    const res = await fetchText(`${baseUrl}/`);
+    // メニューコンテナ
+    assert.match(res.body, /id="theme-menu"/);
+    assert.match(res.body, /role="menu"/);
+    // ライト・ダークの両選択肢が存在
+    assert.match(res.body, /data-theme-choice="light"/);
+    assert.match(res.body, /data-theme-choice="dark"/);
+    // 各選択肢が menuitemradio として宣言されている (ラジオ的に1つだけ選択中)
+    assert.match(res.body, /role="menuitemradio"/);
   });
 
   test("HTML 本体に mermaid.js のスクリプトが含まれる", async () => {
