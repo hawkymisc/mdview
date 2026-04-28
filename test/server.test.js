@@ -22,7 +22,7 @@ async function readUntil(reader, predicate, timeoutMs) {
     const remaining = deadline - Date.now();
     const { value, done } = await Promise.race([
       reader.read(),
-      delay(remaining, { value: "__timeout__" }).then((v) => ({ value: v })),
+      delay(remaining, "__timeout__").then((v) => ({ value: v })),
     ]);
     if (value === "__timeout__") break;
     if (done) break;
