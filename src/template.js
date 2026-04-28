@@ -273,12 +273,44 @@ const SCRIPT = `
     }
   }
 
+  // 自動リロード: ファイル変更をサーバから SSE で受け取り、
+  // スクロール位置を sessionStorage に退避してから location.reload() する。
+  const SCROLL_KEY = "mdview:scrollY";
+  function restoreScroll() {
+    try {
+      const y = sessionStorage.getItem(SCROLL_KEY);
+      if (y === null) return;
+      sessionStorage.removeItem(SCROLL_KEY);
+      const n = Number(y);
+      if (Number.isFinite(n)) window.scrollTo(0, n);
+    } catch {
+      /* sessionStorage 不可環境では無視 */
+    }
+  }
+  function startLiveReload() {
+    if (typeof EventSource === "undefined") return;
+    const es = new EventSource("/__mdview/events");
+    es.addEventListener("reload", () => {
+      try {
+        sessionStorage.setItem(SCROLL_KEY, String(window.scrollY));
+      } catch {
+        /* 退避失敗時もリロードは続行 */
+      }
+      location.reload();
+    });
+    es.addEventListener("error", () => {
+      // EventSource はデフォルトで自動再接続するため、ここで何もしないでよい
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     const btn = document.getElementById("theme-toggle");
     const menu = document.getElementById("theme-menu");
 
+    restoreScroll();
     syncUI(currentTheme());
     applyMermaid(currentTheme());
+    startLiveReload();
 
     if (btn) {
       btn.addEventListener("click", (e) => {
