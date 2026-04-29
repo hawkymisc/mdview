@@ -127,6 +127,44 @@ describe("createMdviewServer", () => {
     assert.match(res.body, /addEventListener\(['"]reload['"]/);
   });
 
+  test("HTML 本体に highlight.js のスクリプトとテーマ CSS が含まれる", async () => {
+    const res = await fetchText(`${baseUrl}/`);
+    // CDN 上の highlight.js スクリプト (バージョンピン)
+    assert.match(
+      res.body,
+      /<script[^>]*src="https:\/\/cdn\.jsdelivr\.net\/npm\/@highlightjs\/cdn-assets@/,
+    );
+    // ライト用テーマの link
+    assert.match(
+      res.body,
+      /<link[^>]*rel="stylesheet"[^>]*href="https:\/\/cdn\.jsdelivr\.net\/npm\/@highlightjs\/cdn-assets@[^"]*github\.min\.css"/,
+    );
+    // ダーク用テーマの link
+    assert.match(
+      res.body,
+      /<link[^>]*rel="stylesheet"[^>]*href="https:\/\/cdn\.jsdelivr\.net\/npm\/@highlightjs\/cdn-assets@[^"]*github-dark\.min\.css"/,
+    );
+  });
+
+  test("HTML 本体のスクリプトが pre code(Mermaid 以外) を hljs でハイライトする", async () => {
+    const res = await fetchText(`${baseUrl}/`);
+    // window.hljs を呼び出していること
+    assert.match(res.body, /window\.hljs/);
+    assert.match(res.body, /hljs\.highlightElement/);
+    // Mermaid ブロックを除外していること (selector 内に :not(.mermaid) もしくは回避ロジック)
+    assert.match(res.body, /\.mermaid/);
+    assert.match(res.body, /pre\s+code/);
+  });
+
+  test("HTML 本体に hljs テーマを切り替える hook が含まれる", async () => {
+    const res = await fetchText(`${baseUrl}/`);
+    // テーマ切替時に hljs 用 CSS の disabled をトグルする実装が必要
+    assert.match(res.body, /id="hljs-theme-light"/);
+    assert.match(res.body, /id="hljs-theme-dark"/);
+    // disabled 属性をトグルする示唆
+    assert.match(res.body, /disabled/);
+  });
+
   test("GET /__mdview/events は text/event-stream を 200 で返す", async () => {
     const ac = new AbortController();
     try {
