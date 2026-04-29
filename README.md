@@ -88,13 +88,24 @@ mdview samples/demo.md
 ## Development
 
 ```bash
-npm test        # node --test 'test/*.test.js'
+npm test         # ユニット (node --test、ブラウザ不要)
+npm run test:e2e # E2E (Playwright + Chromium、初回は npx playwright install chromium が必要)
 ```
 
-テストは 2 ファイル構成です。
+テストは 2 層構成です。
 
+**ユニット (`test/`)** — `node --test` で実行、ブラウザ不要
 - `test/render.test.js` — Markdown → HTML 変換、Mermaid ブロック処理、XSS エスケープ
-- `test/server.test.js` — HTTP エンドポイント、静的配信、パストラバーサル防御
+- `test/server.test.js` — HTTP エンドポイント、SSE 配信、close クリーンアップ、パストラバーサル防御
+
+**E2E (`e2e/`)** — Playwright + Chromium で実ブラウザ検証
+- `e2e/render.spec.js` — 基本レンダリング (h1、テーマボタン、メタフッター)
+- `e2e/theme.spec.js` — テーマ切替 (メニュー開閉、キーボード操作、`prefers-color-scheme` 連動、localStorage 永続化)
+- `e2e/syntax-highlight.spec.js` — hljs クラス付与、テーマ連動でスタイルシート切替、Mermaid 非干渉
+- `e2e/mermaid.spec.js` — `pre.mermaid` 内に `<svg>` が描画されること
+- `e2e/live-reload.spec.js` — ファイル変更で自動リロード、スクロール / テーマの維持
+
+各 E2E テストは `createMdviewServer` を使って tmp ディレクトリに独立した mdview サーバを立ち上げるため、テスト間で状態が干渉しません。
 
 ### Project layout
 
@@ -106,7 +117,9 @@ mdview/
 │   ├── server.js     HTTP サーバー (静的配信 + パストラバーサル防御)
 │   └── template.js   HTML シェル / CSS (テーマ) / クライアント側スクリプト
 ├── samples/demo.md   動作確認用サンプル
-└── test/             node --test
+├── test/             ユニット (node --test)
+└── e2e/              E2E (Playwright)
+    └── fixtures/     共通フィクスチャ + サンプル Markdown
 ```
 
 ## Security notes
