@@ -6,6 +6,7 @@ macOS 専用の [`mo`](https://github.com/hisaac/mo) / [`arto`](https://github.c
 - 🌗 ライト / ダーク テーマ切替 (`prefers-color-scheme` に追従、`localStorage` で記憶)
 - 🧜 [Mermaid](https://mermaid.js.org/) 図のレンダリング (`` ```mermaid `` ブロック)
 - 🔄 ファイル変更を検知して**ブラウザを自動リロード** (Server-Sent Events、依存追加なし)
+- 🎨 [highlight.js](https://highlightjs.org/) によるコードブロックのシンタックスハイライト (テーマ連動)
 - 🖼  Markdown と同ディレクトリ配下の画像・アセットを自動配信
 - 📦 サーバー側依存は `marked` のみ。シンプルでポータブル
 
@@ -117,10 +118,10 @@ mdview/
 
 ## Limitations / Roadmap
 
-- シンタックスハイライトは未実装 (highlight.js 注入を予定)
 - 複数ファイル / ファイルツリーは未対応
-- Mermaid CDN の SRI ハッシュ未付与 (バージョンピンのみ)
+- Mermaid / highlight.js CDN の SRI ハッシュ未付与 (バージョンピンのみ)
 - ファイル監視は **Markdown 本体と同ディレクトリ** のみ (画像差し替え時のリロードは対象外。次バージョンで検討)
+- highlight.js のテーマは GitHub light/dark 固定 (`@highlightjs/cdn-assets` の `styles/` から差し替え可能だが、現状は CLI フラグなし)
 
 ## License
 
