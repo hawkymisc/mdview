@@ -210,6 +210,11 @@ export function createMdviewServer({ filePath, port = 0, host = "127.0.0.1" }) {
             for (const sseRes of sseClients) {
               try {
                 sseRes.end();
+                // res.end() で HTTP レスポンスを終了させても keep-alive で
+                // TCP ソケットは生存し続けるため、明示的に破棄する。
+                // これがないと server.close() のコールバックが解決せず
+                // bin/mdview.js の SIGINT ハンドラが await で hang する。
+                sseRes.socket?.destroy();
               } catch {
                 /* ignore */
               }

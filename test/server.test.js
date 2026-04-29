@@ -188,7 +188,7 @@ describe("createMdviewServer — close cleanup", () => {
     // SSE を開いたまま close を呼んでも 2 秒以内に解決すること
     const closed = await Promise.race([
       server.close().then(() => "closed"),
-      delay(2000, { value: "timeout" }),
+      delay(2000, "timeout"),
     ]);
 
     // fetch 側のリーダーは close で切断される。abort で握っている readable をキャンセル
@@ -201,5 +201,47 @@ describe("createMdviewServer — close cleanup", () => {
     }
 
     assert.equal(closed, "closed");
+  });
+
+  test("複数の SSE 接続がオープン中でも close() が 500ms 以内に解決する", async () => {
+    // ブラウザの EventSource では FIN を送っても TCP keep-alive が残り
+    // server.close(callback) のコールバックが解決しないリグレッションがあった。
+    // 修正: SSE レスポンス毎に socket.destroy() を呼んで強制 TCP teardown する。
+    const dir = mkdtempSync(path.join(tmpdir(), "mdview-multi-sse-"));
+    const mdPath = path.join(dir, "doc.md");
+    writeFileSync(mdPath, "# Multi SSE\n");
+    const server = await createMdviewServer({ filePath: mdPath, port: 0 });
+
+    const acs = [];
+    const responses = [];
+    for (let i = 0; i < 3; i++) {
+      const ac = new AbortController();
+      acs.push(ac);
+      const r = await fetch(
+        `http://127.0.0.1:${server.port}/__mdview/events`,
+        { signal: ac.signal },
+      );
+      assert.equal(r.status, 200);
+      responses.push(r);
+    }
+
+    const t0 = Date.now();
+    const result = await Promise.race([
+      server.close().then(() => "closed"),
+      delay(500, "timeout"),
+    ]);
+    const elapsed = Date.now() - t0;
+
+    for (const ac of acs) ac.abort();
+    for (const r of responses) {
+      try {
+        await r.body?.cancel();
+      } catch {
+        /* already aborted */
+      }
+    }
+
+    assert.equal(result, "closed", `close timed out after ${elapsed}ms`);
+    assert.ok(elapsed < 500, `close should be fast, took ${elapsed}ms`);
   });
 });
