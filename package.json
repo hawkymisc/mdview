@@ -1,6 +1,6 @@
 {
   "name": "mdview",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Terminal-launched, browser-rendered Markdown viewer for Linux",
   "type": "module",
   "bin": {
@@ -12,7 +12,8 @@
   },
   "scripts": {
     "start": "node bin/mdview.js",
-    "test": "node --test 'test/*.test.js'"
+    "test": "node --test 'test/*.test.js'",
+    "test:e2e": "playwright test"
   },
   "engines": {
     "node": ">=18"
@@ -20,5 +21,8 @@
   "license": "MIT",
   "dependencies": {
     "marked": "^14.1.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1"
   }
 }
