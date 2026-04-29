@@ -1,9 +1,13 @@
 import http from "node:http";
-import { createReadStream } from "node:fs";
+import { createReadStream, watch as fsWatch } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { renderMarkdown } from "./render.js";
 import { renderPage } from "./template.js";
+
+const SSE_PATH = "/__mdview/events";
+const WATCH_DEBOUNCE_MS = 75;
+const SSE_KEEPALIVE_MS = 25_000;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -72,9 +76,81 @@ async function serveStatic(res, filePath) {
   createReadStream(filePath).pipe(res);
 }
 
+function attachSseClient(res, clients) {
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache, no-transform",
+    "connection": "keep-alive",
+    "x-accel-buffering": "no",
+  });
+  res.write("retry: 3000\n");
+  res.write(": connected\n\n");
+  clients.add(res);
+  res.on("close", () => clients.delete(res));
+}
+
+function broadcastReload(clients) {
+  const frame = `event: reload\ndata: {"ts":${Date.now()}}\n\n`;
+  for (const res of clients) {
+    try {
+      res.write(frame);
+    } catch {
+      clients.delete(res);
+    }
+  }
+}
+
+function startWatcher(rootDir, targetBase, onChange) {
+  let timer = null;
+  const fire = () => {
+    timer = null;
+    onChange();
+  };
+  let watcher;
+  try {
+    watcher = fsWatch(rootDir, { persistent: false }, (_event, filename) => {
+      if (!filename || filename !== targetBase) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(fire, WATCH_DEBOUNCE_MS);
+    });
+  } catch (err) {
+    console.warn(`mdview: file watcher disabled (${err.message})`);
+    return { close: () => {} };
+  }
+  watcher.on("error", (err) => {
+    console.warn(`mdview: watcher error: ${err.message}`);
+  });
+  return {
+    close: () => {
+      if (timer) clearTimeout(timer);
+      try {
+        watcher.close();
+      } catch {
+        /* already closed */
+      }
+    },
+  };
+}
+
 export function createMdviewServer({ filePath, port = 0, host = "127.0.0.1" }) {
   const absFile = path.resolve(filePath);
   const rootDir = path.dirname(absFile);
+  const targetBase = path.basename(absFile);
+
+  const sseClients = new Set();
+  const watcher = startWatcher(rootDir, targetBase, () =>
+    broadcastReload(sseClients),
+  );
+  const keepAlive = setInterval(() => {
+    for (const res of sseClients) {
+      try {
+        res.write(": keepalive\n\n");
+      } catch {
+        sseClients.delete(res);
+      }
+    }
+  }, SSE_KEEPALIVE_MS);
+  keepAlive.unref?.();
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -89,6 +165,11 @@ export function createMdviewServer({ filePath, port = 0, host = "127.0.0.1" }) {
       if (pathname === "/raw") {
         const raw = await readFile(absFile, "utf8");
         send(res, 200, raw, { "content-type": "text/markdown; charset=utf-8" });
+        return;
+      }
+
+      if (pathname === SSE_PATH) {
+        attachSseClient(res, sseClients);
         return;
       }
 
@@ -124,6 +205,21 @@ export function createMdviewServer({ filePath, port = 0, host = "127.0.0.1" }) {
         url: `http://${host}:${addr.port}`,
         close: () =>
           new Promise((res) => {
+            clearInterval(keepAlive);
+            watcher.close();
+            for (const sseRes of sseClients) {
+              try {
+                sseRes.end();
+                // res.end() で HTTP レスポンスを終了させても keep-alive で
+                // TCP ソケットは生存し続けるため、明示的に破棄する。
+                // これがないと server.close() のコールバックが解決せず
+                // bin/mdview.js の SIGINT ハンドラが await で hang する。
+                sseRes.socket?.destroy();
+              } catch {
+                /* ignore */
+              }
+            }
+            sseClients.clear();
             server.closeAllConnections?.();
             server.close(() => res());
           }),
