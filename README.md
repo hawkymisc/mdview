@@ -5,6 +5,7 @@ macOS 専用の [`mo`](https://github.com/hisaac/mo) / [`arto`](https://github.c
 
 - 🌗 ライト / ダーク テーマ切替 (`prefers-color-scheme` に追従、`localStorage` で記憶)
 - 🧜 [Mermaid](https://mermaid.js.org/) 図のレンダリング (`` ```mermaid `` ブロック)
+- 🔄 ファイル変更を検知して**ブラウザを自動リロード** (Server-Sent Events、依存追加なし)
 - 🖼  Markdown と同ディレクトリ配下の画像・アセットを自動配信
 - 📦 サーバー側依存は `marked` のみ。シンプルでポータブル
 
@@ -61,14 +62,19 @@ mdview slides.md --host 0.0.0.0 --port 4000
 ターミナル
   └─ mdview file.md
        └─ Node.js HTTP server (127.0.0.1:PORT)
-            ├─ GET  /            → Markdown を HTML にレンダリングして返す
-            ├─ GET  /raw         → 生 Markdown テキスト
-            └─ GET  /<asset>     → file.md と同じディレクトリから静的配信
-                                   (パストラバーサル防御あり)
+            ├─ GET  /                  → Markdown を HTML にレンダリングして返す
+            ├─ GET  /raw               → 生 Markdown テキスト
+            ├─ GET  /__mdview/events   → Server-Sent Events (ファイル変更通知)
+            └─ GET  /<asset>           → file.md と同じディレクトリから静的配信
+                                         (パストラバーサル防御あり)
 ブラウザ
   ├─ HTML を表示 (CSS 変数でテーマ切替)
-  └─ Mermaid.js (CDN) が `<pre class="mermaid">` ブロックを SVG に変換
+  ├─ Mermaid.js (CDN) が `<pre class="mermaid">` ブロックを SVG に変換
+  └─ EventSource("/__mdview/events") を購読し、`reload` 受信時に
+     スクロール位置を退避 → location.reload() を実行
 ```
+
+ファイル監視は Node 標準の `fs.watch` をディレクトリ単位で行い (atomic save によるエディタの「rename 保存」にも追従できるように)、連続イベントは 75ms にデバウンスして 1 つの reload としてブロードキャストします。テーマ設定は `localStorage`、スクロール位置は `sessionStorage` に保持されるため、リロード後も状態が復元されます。
 
 ## Sample
 
@@ -111,10 +117,10 @@ mdview/
 
 ## Limitations / Roadmap
 
-- ファイル変更時の自動リロードは未実装 (今後 chokidar + SSE で対応予定)
 - シンタックスハイライトは未実装 (highlight.js 注入を予定)
 - 複数ファイル / ファイルツリーは未対応
 - Mermaid CDN の SRI ハッシュ未付与 (バージョンピンのみ)
+- ファイル監視は **Markdown 本体と同ディレクトリ** のみ (画像差し替え時のリロードは対象外。次バージョンで検討)
 
 ## License
 

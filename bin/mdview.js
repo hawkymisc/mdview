@@ -93,12 +93,31 @@ async function main() {
     openBrowser(url);
   }
 
-  const shutdown = async () => {
-    await server.close();
+  let shuttingDown = false;
+  const shutdown = async (signal) => {
+    if (shuttingDown) {
+      // 二度目のシグナル: 即時強制終了。graceful close が動かない時の最終手段
+      console.warn(`\nmdview: forcing exit on second ${signal}`);
+      process.exit(1);
+    }
+    shuttingDown = true;
+    // ウォッチドッグ: server.close() が何らかの理由で hang しても 1 秒で諦めて
+    // 終了する (long-lived SSE 接続の TCP teardown 待ちなどで詰まる場合の保険)。
+    // .unref() で graceful close が成功した瞬間にこのタイマーを破棄させる。
+    const watchdog = setTimeout(() => {
+      console.warn("mdview: graceful close timed out, forcing exit");
+      process.exit(0);
+    }, 1000);
+    watchdog.unref?.();
+    try {
+      await server.close();
+    } catch {
+      /* close 中の例外は無視して exit へ進む */
+    }
     process.exit(0);
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
 }
 
 main().catch((err) => {
