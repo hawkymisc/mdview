@@ -251,6 +251,7 @@ const SCRIPT = `
     root.setAttribute("data-theme", next);
     localStorage.setItem(KEY, next);
     syncUI(next);
+    applyHljsTheme(next);
     applyMermaid(next);
     return true;
   }
@@ -271,6 +272,32 @@ const SCRIPT = `
     } else {
       menu.setAttribute("hidden", "");
     }
+  }
+
+  // シンタックスハイライト: pre code 要素 (Mermaid 以外) を hljs で色付けする。
+  // hljs.highlightElement は冪等 (data-highlighted="yes" で skip される) なので
+  // ライブリロード後の再実行でも安全。
+  function applyHljs() {
+    if (!window.hljs) return;
+    const blocks = document.querySelectorAll(
+      "main.markdown-body pre:not(.mermaid) code",
+    );
+    blocks.forEach((el) => {
+      try {
+        window.hljs.highlightElement(el);
+      } catch (e) {
+        console.warn("hljs highlight failed", e);
+      }
+    });
+  }
+
+  // hljs のテーマ用 <link> を有効/無効にトグルする。
+  // 両方とも head に置いておき、現在テーマに応じて disabled 属性を切り替える。
+  function applyHljsTheme(theme) {
+    const light = document.getElementById("hljs-theme-light");
+    const dark = document.getElementById("hljs-theme-dark");
+    if (light) light.disabled = theme !== "light";
+    if (dark) dark.disabled = theme !== "dark";
   }
 
   // 自動リロード: ファイル変更をサーバから SSE で受け取り、
@@ -309,6 +336,8 @@ const SCRIPT = `
 
     restoreScroll();
     syncUI(currentTheme());
+    applyHljsTheme(currentTheme());
+    applyHljs();
     applyMermaid(currentTheme());
     startLiveReload();
 
@@ -392,6 +421,9 @@ const THEME_SWITCHER_HTML = `<div class="theme-switcher" data-state="closed">
   </ul>
 </div>`;
 
+const HLJS_VERSION = "11.10.0";
+const HLJS_CDN = `https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@${HLJS_VERSION}`;
+
 export function renderPage({ title, bodyHtml, sourcePath }) {
   const safeTitle = escapeHtml(title ?? "mdview");
   const metaFooter = sourcePath
@@ -403,6 +435,8 @@ export function renderPage({ title, bodyHtml, sourcePath }) {
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>${safeTitle}</title>
+<link id="hljs-theme-light" rel="stylesheet" href="${HLJS_CDN}/styles/github.min.css" crossorigin="anonymous" />
+<link id="hljs-theme-dark" rel="stylesheet" href="${HLJS_CDN}/styles/github-dark.min.css" crossorigin="anonymous" disabled />
 <style>${STYLES}</style>
 </head>
 <body>
@@ -412,6 +446,7 @@ ${bodyHtml}
 ${metaFooter}
 </main>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.3/dist/mermaid.min.js" crossorigin="anonymous"></script>
+<script src="${HLJS_CDN}/highlight.min.js" crossorigin="anonymous"></script>
 <script>${SCRIPT}</script>
 </body>
 </html>
