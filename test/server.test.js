@@ -156,6 +156,51 @@ describe("createMdviewServer", () => {
     assert.match(res.body, /pre\s+code/);
   });
 
+  test("CDN から読み込む全スクリプト/スタイルに SRI ハッシュ (sha384) が付与されている", async () => {
+    const res = await fetchText(`${baseUrl}/`);
+    // CDN を参照する <script> タグはすべて integrity="sha384-..." を持つ
+    const scriptTags = res.body.match(
+      /<script[^>]*src="https:\/\/cdn\.jsdelivr\.net\/[^"]*"[^>]*>/g,
+    );
+    assert.ok(
+      scriptTags && scriptTags.length >= 2,
+      "CDN を参照する <script> タグが 2 つ以上存在すべき (mermaid + highlight.js)",
+    );
+    for (const tag of scriptTags) {
+      assert.match(
+        tag,
+        /\bintegrity="sha384-[A-Za-z0-9+/=]+"/,
+        `CDN script に SRI が必要: ${tag}`,
+      );
+      assert.match(
+        tag,
+        /\bcrossorigin="anonymous"/,
+        `SRI 検証には crossorigin="anonymous" が必須: ${tag}`,
+      );
+    }
+
+    // CDN を参照する <link rel="stylesheet"> タグもすべて integrity を持つ
+    const linkTags = res.body.match(
+      /<link[^>]*href="https:\/\/cdn\.jsdelivr\.net\/[^"]*"[^>]*>/g,
+    );
+    assert.ok(
+      linkTags && linkTags.length >= 2,
+      "CDN を参照する <link> タグが 2 つ以上存在すべき (light + dark テーマ)",
+    );
+    for (const tag of linkTags) {
+      assert.match(
+        tag,
+        /\bintegrity="sha384-[A-Za-z0-9+/=]+"/,
+        `CDN link に SRI が必要: ${tag}`,
+      );
+      assert.match(
+        tag,
+        /\bcrossorigin="anonymous"/,
+        `SRI 検証には crossorigin="anonymous" が必須: ${tag}`,
+      );
+    }
+  });
+
   test("HTML 本体に hljs テーマを切り替える hook が含まれる", async () => {
     const res = await fetchText(`${baseUrl}/`);
     // テーマ切替時に hljs 用 CSS の disabled をトグルする実装が必要

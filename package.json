@@ -1,6 +1,6 @@
 {
   "name": "mdview",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Terminal-launched, browser-rendered Markdown viewer for Linux",
   "type": "module",
   "bin": {

@@ -423,6 +423,21 @@ const THEME_SWITCHER_HTML = `<div class="theme-switcher" data-state="closed">
 
 const HLJS_VERSION = "11.10.0";
 const HLJS_CDN = `https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@${HLJS_VERSION}`;
+const MERMAID_VERSION = "10.9.3";
+const MERMAID_CDN = `https://cdn.jsdelivr.net/npm/mermaid@${MERMAID_VERSION}/dist/mermaid.min.js`;
+
+// SRI ハッシュ (sha384). バージョンを上げる際は再計算すること:
+//   curl -sL <url> | openssl dgst -sha384 -binary | openssl base64 -A
+const SRI = {
+  hljsLight:
+    "sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L",
+  hljsDark:
+    "sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH",
+  mermaid:
+    "sha384-R63zfMfSwJF4xCR11wXii+QUsbiBIdiDzDbtxia72oGWfkT7WHJfmD/I/eeHPJyT",
+  hljsScript:
+    "sha384-GdEWAbCjn+ghjX0gLx7/N1hyTVmPAjdC2OvoAA0RyNcAOhqwtT8qnbCxWle2+uJX",
+};
 
 export function renderPage({ title, bodyHtml, sourcePath }) {
   const safeTitle = escapeHtml(title ?? "mdview");
@@ -435,8 +450,8 @@ export function renderPage({ title, bodyHtml, sourcePath }) {
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>${safeTitle}</title>
-<link id="hljs-theme-light" rel="stylesheet" href="${HLJS_CDN}/styles/github.min.css" crossorigin="anonymous" />
-<link id="hljs-theme-dark" rel="stylesheet" href="${HLJS_CDN}/styles/github-dark.min.css" crossorigin="anonymous" disabled />
+<link id="hljs-theme-light" rel="stylesheet" href="${HLJS_CDN}/styles/github.min.css" integrity="${SRI.hljsLight}" crossorigin="anonymous" />
+<link id="hljs-theme-dark" rel="stylesheet" href="${HLJS_CDN}/styles/github-dark.min.css" integrity="${SRI.hljsDark}" crossorigin="anonymous" disabled />
 <style>${STYLES}</style>
 </head>
 <body>
@@ -445,8 +460,8 @@ ${THEME_SWITCHER_HTML}
 ${bodyHtml}
 ${metaFooter}
 </main>
-<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.3/dist/mermaid.min.js" crossorigin="anonymous"></script>
-<script src="${HLJS_CDN}/highlight.min.js" crossorigin="anonymous"></script>
+<script src="${MERMAID_CDN}" integrity="${SRI.mermaid}" crossorigin="anonymous"></script>
+<script src="${HLJS_CDN}/highlight.min.js" integrity="${SRI.hljsScript}" crossorigin="anonymous"></script>
 <script>${SCRIPT}</script>
 </body>
 </html>
