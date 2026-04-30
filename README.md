@@ -138,12 +138,12 @@ mdview/
 - ローカル閲覧用ツールとして設計されています。デフォルトのバインドは `127.0.0.1` で、外部公開は想定していません。
 - Markdown 内の `<script>` / `<iframe>` タグおよび `on*=` 属性はサーバー側で除去されます (defense-in-depth)。
 - `` ```mermaid `` ブロックの本文は HTML エスケープされた状態で出力されます (本文中の `<script>` 等で XSS が発生しないように)。
+- 外部 CDN (`cdn.jsdelivr.net`) から読み込む Mermaid / highlight.js には **SRI (Subresource Integrity) ハッシュ (sha384)** を付与済み。CDN 改ざんを検知してブラウザがロードを拒否します。バージョンを上げる際は `src/template.js` の `SRI` 定数を再計算してください: `curl -sL <url> | openssl dgst -sha384 -binary | openssl base64 -A`
 - `--host 0.0.0.0` で外部にバインドする場合は **信頼できるネットワーク内** でのみ使用してください。
 
 ## Limitations / Roadmap
 
 - 複数ファイル / ファイルツリーは未対応
-- Mermaid / highlight.js CDN の SRI ハッシュ未付与 (バージョンピンのみ)
 - ファイル監視は **Markdown 本体と同ディレクトリ** のみ (画像差し替え時のリロードは対象外。次バージョンで検討)
 - highlight.js のテーマは GitHub light/dark 固定 (`@highlightjs/cdn-assets` の `styles/` から差し替え可能だが、現状は CLI フラグなし)
 
