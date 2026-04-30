@@ -1,5 +1,7 @@
 # mdview
 
+[![test](https://github.com/hawkymisc/mdview/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/hawkymisc/mdview/actions/workflows/test.yml)
+
 ターミナルから起動して、ブラウザで Markdown を閲覧する軽量ビューアです。
 macOS 専用の [`mo`](https://github.com/hisaac/mo) / [`arto`](https://github.com/sindresorhus/arto) の Linux 代替として作りました。
 
@@ -106,6 +108,15 @@ npm run test:e2e # E2E (Playwright + Chromium、初回は npx playwright install
 - `e2e/live-reload.spec.js` — ファイル変更で自動リロード、スクロール / テーマの維持
 
 各 E2E テストは `createMdviewServer` を使って tmp ディレクトリに独立した mdview サーバを立ち上げるため、テスト間で状態が干渉しません。
+
+### CI
+
+`main` への push と全 PR で GitHub Actions により自動実行されます (`.github/workflows/test.yml`):
+
+- **unit ジョブ**: Ubuntu / Node 22 / `npm test`
+- **e2e ジョブ**: Ubuntu / Node 22 / Chromium / `npm run test:e2e` (Playwright ブラウザはバージョン連動でキャッシュ、失敗時に `playwright-report/` をアーティファクト化)
+
+両ジョブは並列実行。同 ref で push が連続した場合は `concurrency: cancel-in-progress` で古い run を自動キャンセルします。
 
 ### Project layout
 
