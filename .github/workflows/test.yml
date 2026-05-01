@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# Job 単位で必要な権限を上書きする前提で、デフォルトは最小権限 (contents: read)。
+# 将来追加される job が GITHUB_TOKEN の repo 既定権限を継承するのを防ぐ defense-in-depth。
+permissions:
+  contents: read
+
 # 同じ ref で push が連続した場合、走行中の job をキャンセルする
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

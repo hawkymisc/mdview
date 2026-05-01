@@ -118,6 +118,8 @@ npm run test:e2e # E2E (Playwright + Chromium、初回は npx playwright install
 
 両ジョブは並列実行。同 ref で push が連続した場合は `concurrency: cancel-in-progress` で古い run を自動キャンセルします。
 
+このほかにセキュリティ関連の自動化として **CodeQL** (`.github/workflows/codeql.yml`) と **Dependabot** (`.github/dependabot.yml`) を併用しています。運用詳細は [Security notes](#security-notes) を参照してください。
+
 ### Project layout
 
 ```
@@ -139,6 +141,8 @@ mdview/
 - Markdown 内の `<script>` / `<iframe>` タグおよび `on*=` 属性はサーバー側で除去されます (defense-in-depth)。
 - `` ```mermaid `` ブロックの本文は HTML エスケープされた状態で出力されます (本文中の `<script>` 等で XSS が発生しないように)。
 - 外部 CDN (`cdn.jsdelivr.net`) から読み込む Mermaid / highlight.js には **SRI (Subresource Integrity) ハッシュ (sha384)** を付与済み。CDN 改ざんを検知してブラウザがロードを拒否します。バージョンを上げる際は `src/template.js` の `SRI` 定数を再計算してください: `curl -sL <url> | openssl dgst -sha384 -binary | openssl base64 -A`
+- 依存パッケージと GitHub Actions の脆弱性は **Dependabot** が weekly (毎週月曜 09:00 JST) で監視し、自動 PR を作成します (`.github/dependabot.yml`)。
+- 自前コードの静的セキュリティ解析は **CodeQL** が push / PR / weekly (毎週月曜 13:37 JST) で実行します (`.github/workflows/codeql.yml`)。検知結果は GitHub リポジトリの **Security タブ** で確認・トリアージしてください。CodeQL の結果は現状 Required check には含めていない (情報提供レーン) ので、main マージは block しません。
 - `--host 0.0.0.0` で外部にバインドする場合は **信頼できるネットワーク内** でのみ使用してください。
 
 ## Limitations / Roadmap

@@ -1,0 +1,60 @@
+name: codeql
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # 週次で main の最新を再スキャン (新しいクエリパックが追加されることがあるため)
+  schedule:
+    - cron: "37 4 * * 1"  # 毎週月曜 04:37 UTC (= JST 13:37)
+
+# Job 単位で必要な権限を明示的に与える前提で、デフォルトは最小権限。
+permissions:
+  contents: read
+
+# main や PR ref で並列起動された場合、古い run はキャンセル
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # CodeQL のアラートを GitHub Security タブに書き込むのに必要
+      security-events: write
+      # private repo の場合に内容を読むのに必要
+      contents: read
+      # CodeQL action が PR に状況を返すのに利用
+      actions: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # security-and-quality は security 単独より広い範囲をカバー (lint 的検査も含む)
+          queries: security-and-quality
+          # samples/ は意図的に「危ない記法」を含む XSS テスト用 fixture を持つ可能性があり、
+          # CodeQL の誤検知ノイズの温床になる。test-results/ は Playwright の生成物。
+          paths-ignore: |
+            samples/
+            test-results/
+            playwright-report/
+            node_modules/
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
