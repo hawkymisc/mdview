@@ -3,7 +3,6 @@
 [![test](https://github.com/hawkymisc/mdview/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/hawkymisc/mdview/actions/workflows/test.yml)
 
 ターミナルから起動して、ブラウザで Markdown を閲覧する軽量ビューアです。
-macOS 専用の [`mo`](https://github.com/hisaac/mo) / [`arto`](https://github.com/sindresorhus/arto) の Linux 代替として作りました。
 
 - 🌗 ライト / ダーク テーマ切替 (`prefers-color-scheme` に追従、`localStorage` で記憶)
 - 🧜 [Mermaid](https://mermaid.js.org/) 図のレンダリング (`` ```mermaid `` ブロック)
