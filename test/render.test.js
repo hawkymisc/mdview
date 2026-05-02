@@ -77,5 +77,46 @@ describe("renderMarkdown", () => {
       const html = renderMarkdown("hello <script>alert(1)</script> world");
       assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
     });
+
+    test("<script> タグはエスケープされ、テキストとして表示される (strip ではなく escape)", () => {
+      const html = renderMarkdown("hello <script>alert(1)</script> world");
+      // <script> 自体が消えず、エスケープされた形で残る (defense-in-depth、表示明示)
+      assert.match(html, /&lt;script&gt;/);
+      assert.match(html, /&lt;\/script&gt;/);
+      // 元のテキストが完全に保持されている
+      assert.match(html, /hello/);
+      assert.match(html, /world/);
+    });
+
+    test("<iframe> タグもエスケープされる", () => {
+      const html = renderMarkdown(
+        'hello <iframe src="evil.html"></iframe> world',
+      );
+      assert.doesNotMatch(html, /<iframe[^>]*>/i);
+      assert.match(html, /&lt;iframe/);
+    });
+
+    test("ネストしたタグ (<scr<script>ipt>...) でもバイパスできない", () => {
+      // 旧 regex 実装は内側の <script>...</script> を消すと
+      // 外側に <script>...</script> が再構成される脆弱性があった
+      const html = renderMarkdown("<scr<script>ipt>alert(1)</script></script>");
+      assert.doesNotMatch(html, /<script[^>]*>alert/i);
+      // 完全な <script> タグ単独で残らないこと
+      assert.doesNotMatch(html, /<script>[^<]*<\/script>/i);
+    });
+
+    test("on*= イベントハンドラ属性もエスケープされる", () => {
+      const html = renderMarkdown('<a href="#" onclick="alert(1)">click</a>');
+      // 生のイベントハンドラが live で残らない
+      assert.doesNotMatch(html, /onclick=["']alert/);
+      // エスケープ形で保持されている
+      assert.match(html, /&lt;a/);
+    });
+
+    test("大文字混在の <SCRIPT> もエスケープされる", () => {
+      const html = renderMarkdown("<SCRIPT>alert(1)</SCRIPT>");
+      assert.doesNotMatch(html, /<SCRIPT[^>]*>alert/);
+      assert.match(html, /&lt;SCRIPT&gt;|&lt;script&gt;/i);
+    });
   });
 });
