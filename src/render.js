@@ -9,13 +9,6 @@ function escapeHtml(s) {
     .replace(/'/g, "&#39;");
 }
 
-function stripDangerousTags(html) {
-  return html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "")
-    .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe\s*>/gi, "")
-    .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-}
-
 function createMarked() {
   const instance = new Marked({
     gfm: true,
@@ -30,6 +23,15 @@ function createMarked() {
         }
         return false;
       },
+      // Markdown 中の生 HTML はすべてエスケープしてテキスト扱いにする。
+      // 旧実装は <script>/<iframe>/on*= を regex で strip していたが、
+      // 入れ子・部分マッチ等でバイパス可能な構造的問題があり CodeQL に
+      // 指摘されていた (js/bad-tag-filter, js/incomplete-multi-character-sanitization)。
+      // 「strip ではなく escape」に倒すことで、そもそも危険タグが
+      // ライブ HTML として出力されない不変条件が成立する。
+      html({ text }) {
+        return escapeHtml(text);
+      },
     },
   });
 
@@ -39,6 +41,5 @@ function createMarked() {
 const defaultMarked = createMarked();
 
 export function renderMarkdown(source) {
-  const html = defaultMarked.parse(source ?? "");
-  return stripDangerousTags(html);
+  return defaultMarked.parse(source ?? "");
 }
