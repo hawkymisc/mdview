@@ -119,4 +119,66 @@ describe("renderMarkdown", () => {
       assert.match(html, /&lt;SCRIPT&gt;|&lt;script&gt;/i);
     });
   });
+
+  describe("インタラクティブチェックボックス", () => {
+    test("タスクリスト checkbox は disabled が外され、連番 data-mdview-task-index が付く", () => {
+      const html = renderMarkdown("- [ ] todo\n- [x] done\n- [ ] another");
+      // disabled は外れている
+      assert.doesNotMatch(html, /<input[^>]*disabled/);
+      // 連番 index が付与されている
+      assert.match(html, /data-mdview-task-index="0"/);
+      assert.match(html, /data-mdview-task-index="1"/);
+      assert.match(html, /data-mdview-task-index="2"/);
+      // クラスが付与されている
+      assert.match(html, /class="mdview-task-checkbox"/);
+    });
+
+    test("チェック済み (checked) も保たれる", () => {
+      const html = renderMarkdown("- [x] done");
+      assert.match(html, /type="checkbox"[^>]*checked|checked[^>]*type="checkbox"/);
+    });
+  });
+
+  describe("mdview コメント拡張", () => {
+    test("<!--mdview-comment[N]: body--> と data-mdview-comment-id span が結合される", () => {
+      const md =
+        'これは<span class="mdview-comment-mark" data-mdview-comment-id="1">対象</span>です。\n' +
+        "\n" +
+        "<!--mdview-comment[1]: これはコメント本文-->\n";
+      const html = renderMarkdown(md);
+      // span が出力される
+      assert.match(
+        html,
+        /<span class="mdview-comment-mark" data-mdview-comment-id="1" data-mdview-comment-text="これはコメント本文">/,
+      );
+      // インラインの内容は保持
+      assert.match(html, />対象</);
+      // コメントアイコンが付く
+      assert.match(html, /class="mdview-comment-icon"[^>]*title="これはコメント本文"/);
+      // 元の HTML コメント本体はソースに出力されない
+      assert.doesNotMatch(html, /mdview-comment\[1\]/);
+    });
+
+    test("HTML コメントは画面に表示されない (escape されない)", () => {
+      const html = renderMarkdown("foo<!-- secret -->bar");
+      assert.doesNotMatch(html, /&lt;!--/);
+      assert.doesNotMatch(html, /secret/);
+      assert.match(html, /foobar/);
+    });
+
+    test("コメント本体が見つからない span でも安全に出力される", () => {
+      const md = '<span class="mdview-comment-mark" data-mdview-comment-id="99">x</span>';
+      const html = renderMarkdown(md);
+      assert.match(html, /data-mdview-comment-text=""/);
+    });
+
+    test("コメント本体内の HTML タグは title 属性で escape される (XSS 防御)", () => {
+      const md =
+        '<span class="mdview-comment-mark" data-mdview-comment-id="1">t</span>\n' +
+        '<!--mdview-comment[1]: <script>alert(1)</script>-->\n';
+      const html = renderMarkdown(md);
+      assert.doesNotMatch(html, /<script>alert/);
+      assert.match(html, /&lt;script&gt;/);
+    });
+  });
 });

@@ -1,13 +1,16 @@
 import http from "node:http";
 import { createReadStream, watch as fsWatch } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, writeFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { renderMarkdown } from "./render.js";
 import { renderPage } from "./template.js";
 
 const SSE_PATH = "/__mdview/events";
+const EDIT_CHECKBOX_PATH = "/__mdview/edit/checkbox";
+const EDIT_COMMENT_PATH = "/__mdview/edit/comment";
 const WATCH_DEBOUNCE_MS = 75;
 const SSE_KEEPALIVE_MS = 25_000;
+const MAX_EDIT_BODY_BYTES = 64 * 1024;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -36,6 +39,13 @@ function send(res, status, body, headers = {}) {
     ...headers,
   });
   res.end(body);
+}
+
+function sendJson(res, status, obj) {
+  send(res, status, JSON.stringify(obj), {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+  });
 }
 
 function safeResolve(rootDir, urlPath) {
@@ -132,6 +142,122 @@ function startWatcher(rootDir, targetBase, onChange) {
   };
 }
 
+function readJsonBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    let total = 0;
+    const chunks = [];
+    let aborted = false;
+    req.on("data", (c) => {
+      if (aborted) return;
+      total += c.length;
+      if (total > maxBytes) {
+        aborted = true;
+        const err = new Error("payload too large");
+        err.code = "payload-too-large";
+        reject(err);
+        req.destroy();
+        return;
+      }
+      chunks.push(c);
+    });
+    req.on("end", () => {
+      if (aborted) return;
+      try {
+        const buf = Buffer.concat(chunks);
+        const txt = buf.toString("utf8");
+        resolve(txt ? JSON.parse(txt) : {});
+      } catch (e) {
+        const err = new Error("invalid JSON");
+        err.code = "invalid-json";
+        err.cause = e;
+        reject(err);
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+// Markdown 内の N 番目のタスクリストチェックボックスを toggle する。
+// `[ ]`, `[x]`, `[X]` のいずれもマッチさせ、checked パラメータに従って差し替える。
+export async function applyCheckboxEdit(filePath, index, checked) {
+  if (!Number.isInteger(index) || index < 0) {
+    const e = new Error("invalid index");
+    e.code = "invalid-index";
+    throw e;
+  }
+  const raw = await readFile(filePath, "utf8");
+  const re = /^([ \t]*[-*+][ \t]+\[)([ xX])(\])/gm;
+  let i = 0;
+  let changed = false;
+  const updated = raw.replace(re, (m, p1, _p2, p3) => {
+    const cur = i;
+    i++;
+    if (cur !== index) return m;
+    changed = true;
+    return `${p1}${checked ? "x" : " "}${p3}`;
+  });
+  if (!changed) {
+    const e = new Error("checkbox not found");
+    e.code = "checkbox-not-found";
+    throw e;
+  }
+  await writeFile(filePath, updated, "utf8");
+}
+
+// 範囲選択された text を <span class="mdview-comment-mark" ...> でラップし、
+// ファイル末尾に <!--mdview-comment[id]: body--> を追記する。
+// before / after は DOM 上の前後コンテキストで、ソース内での一意特定に使う。
+export async function applyCommentInsert(
+  filePath,
+  { selectedText, before = "", after = "", comment },
+) {
+  if (typeof selectedText !== "string" || selectedText.length === 0) {
+    const e = new Error("selectedText required");
+    e.code = "selected-text-required";
+    throw e;
+  }
+  if (typeof comment !== "string" || comment.trim() === "") {
+    const e = new Error("comment required");
+    e.code = "comment-required";
+    throw e;
+  }
+  const raw = await readFile(filePath, "utf8");
+  const search = before + selectedText + after;
+  const idx = raw.indexOf(search);
+  if (idx < 0) {
+    const e = new Error("selection not found in source");
+    e.code = "selection-not-found";
+    throw e;
+  }
+  const dup = raw.indexOf(search, idx + 1);
+  if (dup >= 0) {
+    const e = new Error("selection is ambiguous");
+    e.code = "selection-ambiguous";
+    throw e;
+  }
+  const ids = [...raw.matchAll(/<!--\s*mdview-comment\[(\d+)\]:/g)].map((m) =>
+    Number(m[1]),
+  );
+  const newId = (ids.length ? Math.max(...ids) : 0) + 1;
+  const start = idx + before.length;
+  const end = start + selectedText.length;
+  const head = raw.slice(0, start);
+  const middle = raw.slice(start, end);
+  const tail = raw.slice(end);
+  const wrapped = `<span class="mdview-comment-mark" data-mdview-comment-id="${newId}">${middle}</span>`;
+  let next = head + wrapped + tail;
+  if (!next.endsWith("\n")) next += "\n";
+  // コメント本体内の `-->` は別文字に置換しないと HTML コメントが早期終了する
+  // 改行は 1 行コメント前提で空白に正規化
+  const safeBody = comment
+    .replace(/-->/g, "—>")
+    .replace(/[\r\n]+/g, " ")
+    .trim();
+  next += `<!--mdview-comment[${newId}]: ${safeBody}-->\n`;
+  await writeFile(filePath, next, "utf8");
+  return newId;
+}
+
 export function createMdviewServer({ filePath, port = 0, host = "127.0.0.1" }) {
   const absFile = path.resolve(filePath);
   const rootDir = path.dirname(absFile);
@@ -170,6 +296,49 @@ export function createMdviewServer({ filePath, port = 0, host = "127.0.0.1" }) {
 
       if (pathname === SSE_PATH) {
         attachSseClient(res, sseClients);
+        return;
+      }
+
+      if (pathname === EDIT_CHECKBOX_PATH) {
+        if (req.method !== "POST") {
+          sendJson(res, 405, { ok: false, error: "method not allowed" });
+          return;
+        }
+        try {
+          const body = await readJsonBody(req, MAX_EDIT_BODY_BYTES);
+          await applyCheckboxEdit(absFile, body.index, !!body.checked);
+          sendJson(res, 200, { ok: true });
+        } catch (e) {
+          const status = e.code === "checkbox-not-found" ? 404 : 400;
+          sendJson(res, status, {
+            ok: false,
+            error: e.message,
+            code: e.code,
+          });
+        }
+        return;
+      }
+
+      if (pathname === EDIT_COMMENT_PATH) {
+        if (req.method !== "POST") {
+          sendJson(res, 405, { ok: false, error: "method not allowed" });
+          return;
+        }
+        try {
+          const body = await readJsonBody(req, MAX_EDIT_BODY_BYTES);
+          const id = await applyCommentInsert(absFile, body);
+          sendJson(res, 200, { ok: true, id });
+        } catch (e) {
+          const status =
+            e.code === "selection-not-found" || e.code === "selection-ambiguous"
+              ? 422
+              : 400;
+          sendJson(res, status, {
+            ok: false,
+            error: e.message,
+            code: e.code,
+          });
+        }
         return;
       }
 

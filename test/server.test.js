@@ -1,6 +1,6 @@
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -251,6 +251,191 @@ describe("createMdviewServer", () => {
       assert.match(buf, /event:\s*reload/);
     } finally {
       ac.abort();
+    }
+  });
+});
+
+describe("createMdviewServer — edit endpoints", () => {
+  let dir;
+  let mdPath;
+  let server;
+  let baseUrl;
+
+  before(async () => {
+    dir = mkdtempSync(path.join(tmpdir(), "mdview-edit-"));
+    mdPath = path.join(dir, "doc.md");
+    writeFileSync(
+      mdPath,
+      [
+        "# Tasks",
+        "",
+        "- [ ] first",
+        "- [x] second",
+        "- [ ] third",
+        "",
+        "本文中の対象テキストにコメントを付与します。",
+        "",
+      ].join("\n"),
+    );
+    server = await createMdviewServer({ filePath: mdPath, port: 0 });
+    baseUrl = `http://127.0.0.1:${server.port}`;
+  });
+
+  after(async () => {
+    await server.close();
+  });
+
+  test("POST /__mdview/edit/checkbox で 0 番目のチェックがオンになる", async () => {
+    const r = await fetch(`${baseUrl}/__mdview/edit/checkbox`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ index: 0, checked: true }),
+    });
+    assert.equal(r.status, 200);
+    const body = await r.json();
+    assert.equal(body.ok, true);
+    const after = readFileSync(mdPath, "utf8");
+    assert.match(after, /- \[x\] first/);
+    assert.match(after, /- \[x\] second/);
+    assert.match(after, /- \[ \] third/);
+  });
+
+  test("POST /__mdview/edit/checkbox で 2 番目のチェックがオフされる (オン状態から)", async () => {
+    // 1 番目 (index=1) は既に [x]。これを外す
+    const r = await fetch(`${baseUrl}/__mdview/edit/checkbox`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ index: 1, checked: false }),
+    });
+    assert.equal(r.status, 200);
+    const after = readFileSync(mdPath, "utf8");
+    assert.match(after, /- \[ \] second/);
+  });
+
+  test("存在しない index は 404 を返す", async () => {
+    const r = await fetch(`${baseUrl}/__mdview/edit/checkbox`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ index: 99, checked: true }),
+    });
+    assert.equal(r.status, 404);
+  });
+
+  test("不正な index は 400 を返す", async () => {
+    const r = await fetch(`${baseUrl}/__mdview/edit/checkbox`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ index: "abc" }),
+    });
+    assert.equal(r.status, 400);
+  });
+
+  test("GET /__mdview/edit/checkbox は 405", async () => {
+    const r = await fetch(`${baseUrl}/__mdview/edit/checkbox`);
+    assert.equal(r.status, 405);
+  });
+
+  test("POST /__mdview/edit/comment で span ラップとコメント本体追記が行われる", async () => {
+    // 現在のファイルから「対象テキスト」を見つけてコメント挿入
+    const before = "本文中の";
+    const selectedText = "対象テキスト";
+    const after = "にコメント";
+    const r = await fetch(`${baseUrl}/__mdview/edit/comment`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        selectedText,
+        before,
+        after,
+        comment: "これは追加されたコメントです",
+      }),
+    });
+    assert.equal(r.status, 200);
+    const body = await r.json();
+    assert.equal(body.ok, true);
+    assert.ok(typeof body.id === "number" && body.id >= 1);
+
+    const src = readFileSync(mdPath, "utf8");
+    // span でラップされた
+    assert.match(
+      src,
+      new RegExp(
+        `<span class="mdview-comment-mark" data-mdview-comment-id="${body.id}">対象テキスト</span>`,
+      ),
+    );
+    // 本体が末尾に追記
+    assert.match(
+      src,
+      new RegExp(
+        `<!--mdview-comment\\[${body.id}\\]: これは追加されたコメントです-->`,
+      ),
+    );
+  });
+
+  test("選択範囲がソースに見つからない場合 422 を返す", async () => {
+    const r = await fetch(`${baseUrl}/__mdview/edit/comment`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        selectedText: "存在しない文字列ZZZ",
+        before: "",
+        after: "",
+        comment: "x",
+      }),
+    });
+    assert.equal(r.status, 422);
+    const body = await r.json();
+    assert.equal(body.ok, false);
+    assert.equal(body.code, "selection-not-found");
+  });
+
+  test("コメント本体が空なら 400 を返す", async () => {
+    const r = await fetch(`${baseUrl}/__mdview/edit/comment`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        selectedText: "対象",
+        before: "",
+        after: "",
+        comment: "   ",
+      }),
+    });
+    assert.equal(r.status, 400);
+  });
+});
+
+describe("createMdviewServer — comment / checkbox HTML 出力", () => {
+  test("コメント span と checkbox 属性がレンダリング結果に含まれる", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mdview-render-"));
+    const mdPath = path.join(dir, "doc.md");
+    writeFileSync(
+      mdPath,
+      [
+        "# Test",
+        "- [ ] todo",
+        "",
+        'foo<span class="mdview-comment-mark" data-mdview-comment-id="1">bar</span>baz',
+        "",
+        "<!--mdview-comment[1]: hello-->",
+        "",
+      ].join("\n"),
+    );
+    const server = await createMdviewServer({ filePath: mdPath, port: 0 });
+    try {
+      const r = await fetch(`http://127.0.0.1:${server.port}/`);
+      const body = await r.text();
+      assert.match(body, /class="mdview-task-checkbox"/);
+      assert.match(body, /data-mdview-task-index="0"/);
+      assert.match(
+        body,
+        /<span class="mdview-comment-mark" data-mdview-comment-id="1" data-mdview-comment-text="hello">/,
+      );
+      assert.match(body, /class="mdview-comment-icon"/);
+      // クライアント側スクリプトに編集 hook が含まれる
+      assert.match(body, /setupCheckboxEditing/);
+      assert.match(body, /setupCommentEditing/);
+    } finally {
+      await server.close();
     }
   });
 });

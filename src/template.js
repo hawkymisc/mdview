@@ -97,6 +97,161 @@ main.markdown-body img { max-width: 100%; height: auto; }
 main.markdown-body hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
 main.markdown-body ul, main.markdown-body ol { padding-left: 1.8em; }
 main.markdown-body input[type="checkbox"] { margin-right: 0.3em; }
+main.markdown-body input.mdview-task-checkbox {
+  cursor: pointer;
+}
+main.markdown-body input.mdview-task-checkbox:disabled {
+  /* JS が disabled を外す前の一瞬でもクリックできるように透明度だけ落とす */
+  opacity: 0.7;
+}
+
+.mdview-comment-mark {
+  background: rgba(255, 213, 79, 0.28);
+  border-bottom: 1px dashed rgba(176, 130, 0, 0.85);
+  border-radius: 2px;
+  padding: 0 1px;
+  position: relative;
+  cursor: help;
+}
+:root[data-theme="dark"] .mdview-comment-mark {
+  background: rgba(255, 213, 79, 0.18);
+  border-bottom-color: rgba(255, 213, 79, 0.7);
+}
+.mdview-comment-icon {
+  display: inline-block;
+  margin-left: 0.15em;
+  font-size: 0.78em;
+  vertical-align: super;
+  line-height: 1;
+  user-select: none;
+  cursor: help;
+  filter: saturate(0.85);
+}
+.mdview-comment-mark:hover::after {
+  content: attr(data-mdview-comment-text);
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  background: var(--fg);
+  color: var(--bg);
+  padding: 0.45em 0.7em;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  max-width: 360px;
+  min-width: 6rem;
+  z-index: 50;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+  font-weight: normal;
+}
+
+#mdview-context-menu {
+  position: absolute;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.25em 0;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  z-index: 200;
+  min-width: 12rem;
+  font-size: 0.9rem;
+}
+#mdview-context-menu[hidden] { display: none; }
+#mdview-context-menu button {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  padding: 0.5em 1em;
+  text-align: left;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+#mdview-context-menu button:hover,
+#mdview-context-menu button:focus-visible {
+  background: var(--code-bg);
+  outline: none;
+}
+
+#mdview-comment-dialog {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 250;
+}
+#mdview-comment-dialog[data-open="true"] { display: flex; }
+#mdview-comment-dialog .mdview-dialog-card {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.2rem 1.3rem;
+  width: min(440px, 92vw);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+#mdview-comment-dialog h2 {
+  margin: 0 0 0.6em;
+  font-size: 1rem;
+}
+#mdview-comment-dialog .mdview-dialog-target {
+  display: block;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.4em 0.6em;
+  margin-bottom: 0.8em;
+  font-size: 0.85rem;
+  max-height: 4.5em;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+#mdview-comment-dialog textarea {
+  width: 100%;
+  min-height: 5.5em;
+  resize: vertical;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.5em 0.6em;
+  font: inherit;
+  font-size: 0.92rem;
+}
+#mdview-comment-dialog textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+#mdview-comment-dialog .mdview-dialog-actions {
+  margin-top: 0.9em;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5em;
+}
+#mdview-comment-dialog button {
+  padding: 0.4em 1em;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--code-bg);
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9rem;
+}
+#mdview-comment-dialog button[data-action="submit"] {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+#mdview-comment-dialog button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 .theme-switcher {
   position: fixed;
@@ -314,10 +469,18 @@ const SCRIPT = `
       /* sessionStorage 不可環境では無視 */
     }
   }
+  // 自分自身が POST した編集による reload は、楽観的 DOM 更新で既に反映済みなので
+  // suppressReloadUntil まで無視する。他のクライアント発の編集はそのままリロードされる。
+  let suppressReloadUntil = 0;
+  function suppressNextReload(ms) {
+    suppressReloadUntil = Date.now() + ms;
+  }
+
   function startLiveReload() {
     if (typeof EventSource === "undefined") return;
     const es = new EventSource("/__mdview/events");
     es.addEventListener("reload", () => {
+      if (Date.now() < suppressReloadUntil) return;
       try {
         sessionStorage.setItem(SCROLL_KEY, String(window.scrollY));
       } catch {
@@ -330,6 +493,243 @@ const SCRIPT = `
     });
   }
 
+  // ---- インタラクティブ編集: タスクリストチェックボックス ----
+  function setupCheckboxEditing() {
+    const main = document.querySelector("main.markdown-body");
+    if (!main) return;
+    main.querySelectorAll("input.mdview-task-checkbox").forEach((cb) => {
+      cb.disabled = false;
+    });
+    main.addEventListener("change", async (e) => {
+      const cb = e.target.closest("input.mdview-task-checkbox");
+      if (!cb) return;
+      const idx = Number(cb.dataset.mdviewTaskIndex);
+      if (!Number.isFinite(idx)) return;
+      const checked = cb.checked;
+      // 楽観的更新: ファイル変更による reload はスキップ
+      suppressNextReload(2500);
+      try {
+        const r = await fetch("/__mdview/edit/checkbox", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ index: idx, checked }),
+        });
+        if (!r.ok) {
+          cb.checked = !checked;
+          suppressReloadUntil = 0;
+          const data = await r.json().catch(() => ({}));
+          window.alert(
+            "チェックの保存に失敗しました: " + (data.error || r.status),
+          );
+        }
+      } catch (err) {
+        cb.checked = !checked;
+        suppressReloadUntil = 0;
+        window.alert("チェック保存中にエラー: " + err.message);
+      }
+    });
+  }
+
+  // ---- インタラクティブ編集: コメント挿入 (右クリックで追加) ----
+  function getCommonAncestorElement(range) {
+    let n = range.commonAncestorContainer;
+    if (n && n.nodeType !== 1) n = n.parentElement;
+    return n;
+  }
+
+  function selectionWithinMain(range, main) {
+    return (
+      main &&
+      main.contains(range.startContainer) &&
+      main.contains(range.endContainer)
+    );
+  }
+
+  function selectionTextOffsetIn(root, node, offset) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    let total = 0;
+    let cur;
+    while ((cur = walker.nextNode())) {
+      if (cur === node) return total + offset;
+      total += cur.nodeValue.length;
+    }
+    // node 自体がテキストノードでなかった場合 (要素境界): その要素直前までの長さ
+    return total;
+  }
+
+  function captureSelectionContext(range, main) {
+    const fullText = main.textContent;
+    const startOffset = selectionTextOffsetIn(
+      main,
+      range.startContainer,
+      range.startOffset,
+    );
+    const selectedText = range.toString();
+    const N = 40;
+    const before = fullText.slice(Math.max(0, startOffset - N), startOffset);
+    const after = fullText.slice(
+      startOffset + selectedText.length,
+      startOffset + selectedText.length + N,
+    );
+    return { selectedText, before, after };
+  }
+
+  function buildContextMenu() {
+    const menu = document.createElement("div");
+    menu.id = "mdview-context-menu";
+    menu.hidden = true;
+    menu.setAttribute("role", "menu");
+    menu.innerHTML =
+      '<button type="button" data-action="add-comment" role="menuitem">💬 コメントを追加</button>';
+    document.body.appendChild(menu);
+    return menu;
+  }
+
+  function buildCommentDialog() {
+    const wrap = document.createElement("div");
+    wrap.id = "mdview-comment-dialog";
+    wrap.setAttribute("role", "dialog");
+    wrap.setAttribute("aria-modal", "true");
+    wrap.setAttribute("aria-labelledby", "mdview-comment-dialog-title");
+    wrap.innerHTML =
+      '<form class="mdview-dialog-card" autocomplete="off">' +
+      '<h2 id="mdview-comment-dialog-title">コメントを追加</h2>' +
+      '<span class="mdview-dialog-target"></span>' +
+      '<textarea required placeholder="コメント内容を入力 (Cmd/Ctrl+Enter で送信)"></textarea>' +
+      '<div class="mdview-dialog-actions">' +
+      '<button type="button" data-action="cancel">キャンセル</button>' +
+      '<button type="submit" data-action="submit">追加</button>' +
+      "</div>" +
+      "</form>";
+    document.body.appendChild(wrap);
+    return wrap;
+  }
+
+  function setupCommentEditing() {
+    const main = document.querySelector("main.markdown-body");
+    if (!main) return;
+    const menu = buildContextMenu();
+    const dialog = buildCommentDialog();
+    const dialogTarget = dialog.querySelector(".mdview-dialog-target");
+    const textarea = dialog.querySelector("textarea");
+    const form = dialog.querySelector("form");
+
+    let pending = null;
+
+    function hideMenu() {
+      if (!menu.hidden) menu.hidden = true;
+    }
+    function openDialog(selection) {
+      pending = selection;
+      dialogTarget.textContent = selection.selectedText;
+      textarea.value = "";
+      dialog.setAttribute("data-open", "true");
+      // フォーカスは次フレームで (display:flex 反映後)
+      requestAnimationFrame(() => textarea.focus());
+    }
+    function closeDialog() {
+      dialog.removeAttribute("data-open");
+      pending = null;
+    }
+
+    main.addEventListener("contextmenu", (e) => {
+      // コメントマーカ自体への contextmenu はネイティブメニュー優先
+      if (e.target.closest(".mdview-comment-mark")) return;
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+      const range = sel.getRangeAt(0);
+      if (!selectionWithinMain(range, main)) return;
+      const text = sel.toString();
+      if (!text || !text.trim()) return;
+      e.preventDefault();
+      pending = captureSelectionContext(range, main);
+      menu.style.left = e.pageX + "px";
+      menu.style.top = e.pageY + "px";
+      menu.hidden = false;
+      // フォーカスはボタンへ
+      menu.querySelector("button")?.focus();
+    });
+
+    document.addEventListener("click", (e) => {
+      if (menu.hidden) return;
+      if (!menu.contains(e.target)) hideMenu();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        hideMenu();
+        if (dialog.getAttribute("data-open") === "true") closeDialog();
+      }
+    });
+
+    menu.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-action]");
+      if (!btn) return;
+      if (btn.dataset.action === "add-comment") {
+        hideMenu();
+        if (pending) openDialog(pending);
+      }
+    });
+
+    dialog.addEventListener("click", (e) => {
+      // 背景クリックで閉じる
+      if (e.target === dialog) {
+        closeDialog();
+        return;
+      }
+      const btn = e.target.closest("button[data-action]");
+      if (btn?.dataset.action === "cancel") {
+        e.preventDefault();
+        closeDialog();
+      }
+    });
+
+    textarea.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        form.requestSubmit();
+      }
+    });
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!pending) {
+        closeDialog();
+        return;
+      }
+      const comment = textarea.value.trim();
+      if (!comment) return;
+      const submission = { ...pending, comment };
+      const submitBtn = form.querySelector("button[data-action='submit']");
+      submitBtn.disabled = true;
+      try {
+        const r = await fetch("/__mdview/edit/comment", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(submission),
+        });
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          const reason =
+            data.code === "selection-not-found"
+              ? "選択範囲をソースに対応付けできませんでした (整形済みテキストが原因の可能性)"
+              : data.code === "selection-ambiguous"
+                ? "選択範囲が複数箇所と一致したため挿入できません。前後をもう少し含めて選択してください"
+                : data.error || ("HTTP " + r.status);
+          window.alert("コメント追加に失敗: " + reason);
+          submitBtn.disabled = false;
+          return;
+        }
+        // 成功: 自分のリロードは抑止しつつ、サーバの reload で comment マークを反映
+        // ただし suppress すると自分は何もリロードしないので、ここでは suppress しない。
+        closeDialog();
+        submitBtn.disabled = false;
+      } catch (err) {
+        submitBtn.disabled = false;
+        window.alert("コメント追加中にエラー: " + err.message);
+      }
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     const btn = document.getElementById("theme-toggle");
     const menu = document.getElementById("theme-menu");
@@ -339,6 +739,8 @@ const SCRIPT = `
     applyHljsTheme(currentTheme());
     applyHljs();
     applyMermaid(currentTheme());
+    setupCheckboxEditing();
+    setupCommentEditing();
     startLiveReload();
 
     if (btn) {
