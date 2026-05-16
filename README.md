@@ -6,6 +6,7 @@
 
 - 🌗 ライト / ダーク テーマ切替 (`prefers-color-scheme` に追従、`localStorage` で記憶)
 - 🧜 [Mermaid](https://mermaid.js.org/) 図のレンダリング (`` ```mermaid `` ブロック)
+- 🪟 `` ```html `` ブロックを **プレビュー / ソース** タブで切替表示 (sandbox iframe で隔離レンダリング)
 - 🔄 ファイル変更を検知して**ブラウザを自動リロード** (Server-Sent Events、依存追加なし)
 - 🎨 [highlight.js](https://highlightjs.org/) によるコードブロックのシンタックスハイライト (テーマ連動)
 - 🖼  Markdown と同ディレクトリ配下の画像・アセットを自動配信
@@ -104,6 +105,7 @@ npm run test:e2e # E2E (Playwright + Chromium、初回は npx playwright install
 - `e2e/theme.spec.js` — テーマ切替 (メニュー開閉、キーボード操作、`prefers-color-scheme` 連動、localStorage 永続化)
 - `e2e/syntax-highlight.spec.js` — hljs クラス付与、テーマ連動でスタイルシート切替、Mermaid 非干渉
 - `e2e/mermaid.spec.js` — `pre.mermaid` 内に `<svg>` が描画されること
+- `e2e/html-preview.spec.js` — `` ```html `` ブロックのプレビュー / ソース切替、sandbox 属性、iframe 内描画
 - `e2e/live-reload.spec.js` — ファイル変更で自動リロード、スクロール / テーマの維持
 
 各 E2E テストは `createMdviewServer` を使って tmp ディレクトリに独立した mdview サーバを立ち上げるため、テスト間で状態が干渉しません。
@@ -139,6 +141,7 @@ mdview/
 - ローカル閲覧用ツールとして設計されています。デフォルトのバインドは `127.0.0.1` で、外部公開は想定していません。
 - Markdown 内の `<script>` / `<iframe>` タグおよび `on*=` 属性はサーバー側で除去されます (defense-in-depth)。
 - `` ```mermaid `` ブロックの本文は HTML エスケープされた状態で出力されます (本文中の `<script>` 等で XSS が発生しないように)。
+- `` ```html `` ブロックは `<iframe sandbox="allow-same-origin">` で隔離レンダリングされます。`allow-scripts` は付与しないため、ブロック内の `<script>` / `on*=` ハンドラは**プレビュー上で実行されません** (HTML / CSS のみが反映)。`allow-same-origin` 単独はスクリプト実行能力を持たないため、`allow-scripts` との同時指定で起きる sandbox escape の問題は発生しません。
 - 外部 CDN (`cdn.jsdelivr.net`) から読み込む Mermaid / highlight.js には **SRI (Subresource Integrity) ハッシュ (sha384)** を付与済み。CDN 改ざんを検知してブラウザがロードを拒否します。バージョンを上げる際は `src/template.js` の `SRI` 定数を再計算してください: `curl -sL <url> | openssl dgst -sha384 -binary | openssl base64 -A`
 - 依存パッケージと GitHub Actions の脆弱性は **Dependabot** が weekly (毎週月曜 09:00 JST) で監視し、自動 PR を作成します (`.github/dependabot.yml`)。
 - 自前コードの静的セキュリティ解析は **CodeQL** が push / PR / weekly (毎週月曜 13:37 JST) で実行します (`.github/workflows/codeql.yml`)。検知結果は GitHub リポジトリの **Security タブ** で確認・トリアージしてください。CodeQL の結果は現状 Required check には含めていない (情報提供レーン) ので、main マージは block しません。
