@@ -60,6 +60,90 @@ describe("renderMarkdown", () => {
     });
   });
 
+  describe("HTML プレビューブロック", () => {
+    test("```html ブロックは mdview-html-block でラップされる", () => {
+      const md = "```html\n<p>hi</p>\n```";
+      const html = renderMarkdown(md);
+      assert.match(html, /<div class="mdview-html-block"[^>]*data-mdview-mode="preview"/);
+    });
+
+    test("プレビュー / ソース の 2 タブが出力される", () => {
+      const md = "```html\n<p>hi</p>\n```";
+      const html = renderMarkdown(md);
+      assert.match(html, /data-mdview-target="preview"[^>]*aria-selected="true"/);
+      assert.match(html, /data-mdview-target="source"[^>]*aria-selected="false"/);
+    });
+
+    test("iframe は sandbox=\"allow-same-origin\" で srcdoc に元 HTML を保持する", () => {
+      const md = "```html\n<p>hi</p>\n```";
+      const html = renderMarkdown(md);
+      assert.match(html, /<iframe[^>]*sandbox="allow-same-origin"/);
+      // srcdoc 属性は HTML エスケープされた形で本文を含む
+      assert.match(html, /srcdoc="[^"]*&lt;p&gt;hi&lt;\/p&gt;[^"]*"/);
+    });
+
+    test("iframe sandbox は allow-scripts を含まない (XSS 防御)", () => {
+      const md = "```html\n<script>alert(1)</script>\n```";
+      const html = renderMarkdown(md);
+      assert.doesNotMatch(html, /sandbox="[^"]*allow-scripts/);
+    });
+
+    test("ソース表示用の <pre><code class=\"language-html\"> が併置される", () => {
+      const md = "```html\n<p>hi</p>\n```";
+      const html = renderMarkdown(md);
+      assert.match(
+        html,
+        /<pre class="mdview-html-source"[^>]*hidden><code class="language-html">/,
+      );
+    });
+
+    test("ソース pre 内の HTML はテキストとしてエスケープされる", () => {
+      const md = "```html\n<p>hi</p>\n```";
+      const html = renderMarkdown(md);
+      // ソース表示部に live なタグが残らない
+      assert.match(html, /<code class="language-html">&lt;p&gt;hi&lt;\/p&gt;/);
+    });
+
+    test("srcdoc 内に \" を含む属性値があっても属性値がエスケープされている", () => {
+      const md = '```html\n<a href="x">y</a>\n```';
+      const html = renderMarkdown(md);
+      // srcdoc=" ... " の中に裸の " が現れないこと (= 属性が割れない)
+      const m = html.match(/srcdoc="([^"]*)"/);
+      assert.ok(m, "srcdoc 属性が抽出できる");
+      assert.doesNotMatch(m[1], /"/);
+      assert.match(m[1], /&quot;x&quot;/);
+    });
+
+    test("大文字 HTML 言語指定でも認識される", () => {
+      const md = "```HTML\n<p>x</p>\n```";
+      const html = renderMarkdown(md);
+      assert.match(html, /<div class="mdview-html-block"/);
+    });
+
+    test("html 以外の言語指定 (例: htm, xhtml) は通常コードブロックとして扱う", () => {
+      const md = "```htm\n<p>x</p>\n```";
+      const html = renderMarkdown(md);
+      assert.doesNotMatch(html, /mdview-html-block/);
+      assert.match(html, /<pre><code/);
+    });
+
+    test("mermaid ブロックと html ブロックが両方ある場合、それぞれ独立に処理される", () => {
+      const md = [
+        "```mermaid",
+        "graph TD",
+        "A-->B",
+        "```",
+        "",
+        "```html",
+        "<p>x</p>",
+        "```",
+      ].join("\n");
+      const html = renderMarkdown(md);
+      assert.match(html, /<pre class="mermaid">/);
+      assert.match(html, /<div class="mdview-html-block"/);
+    });
+  });
+
   describe("画像", () => {
     test("相対パスの画像は src がそのまま維持される (サーバ側で静的配信する前提)", () => {
       const html = renderMarkdown("![alt](./img/logo.png)");

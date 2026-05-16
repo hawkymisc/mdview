@@ -24,6 +24,15 @@ graph LR
   B -->|no| A
 ```
 
+## HTML preview block
+
+```html
+<section style="padding:8px;font-family:sans-serif;">
+  <h2 style="margin:0 0 4px;color:#0969da;">Hello Preview</h2>
+  <p data-testid="html-preview-paragraph">This is rendered inside the iframe.</p>
+</section>
+```
+
 ## Image
 
 ![logo](./assets/logo.png)

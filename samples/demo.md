@@ -84,6 +84,21 @@ features:
   - mermaid
 ```
 
+## HTML プレビュー
+
+`` ```html `` で囲んだコードブロックは **プレビュー / ソース** をタブで切替できます。プレビューは sandbox iframe で隔離されるため JavaScript は実行されません (HTML / CSS のみ)。
+
+```html
+<div style="padding:16px;border-radius:8px;background:linear-gradient(135deg,#0969da,#58a6ff);color:#fff;font-family:sans-serif;">
+  <h3 style="margin:0 0 8px;">Hello from preview!</h3>
+  <p style="margin:0;opacity:0.9;">この領域は iframe で描画されています。</p>
+  <ul style="margin:8px 0 0;padding-left:20px;">
+    <li>HTML / CSS はそのまま反映</li>
+    <li>JavaScript は sandbox により無効</li>
+  </ul>
+</div>
+```
+
 ## Mermaid 図
 
 ```mermaid

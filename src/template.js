@@ -180,6 +180,68 @@ main.markdown-body input[type="checkbox"] { margin-right: 0.3em; }
   margin-top: 3rem;
   padding-top: 1rem;
 }
+
+.mdview-html-block {
+  margin: 1em 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.mdview-html-toolbar {
+  display: flex;
+  gap: 0;
+  background: var(--code-bg);
+  border-bottom: 1px solid var(--border);
+  padding: 0.25rem 0.4rem;
+}
+.mdview-html-tab {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 0.3em 0.9em;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.mdview-html-tab:hover {
+  color: var(--fg);
+}
+.mdview-html-tab[aria-selected="true"] {
+  background: var(--bg);
+  color: var(--fg);
+  border-color: var(--border);
+}
+.mdview-html-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.mdview-html-preview {
+  background: #ffffff;
+  padding: 0;
+}
+:root[data-theme="dark"] .mdview-html-preview {
+  background: #ffffff;
+}
+.mdview-html-frame {
+  display: block;
+  width: 100%;
+  min-height: 4rem;
+  border: 0;
+  background: #ffffff;
+}
+.mdview-html-block[data-mdview-mode="source"] .mdview-html-preview { display: none; }
+.mdview-html-block[data-mdview-mode="preview"] .mdview-html-source { display: none; }
+.mdview-html-source[hidden] { display: none; }
+main.markdown-body .mdview-html-source {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--code-bg);
+}
 `;
 
 const SCRIPT = `
@@ -300,6 +362,94 @@ const SCRIPT = `
     if (dark) dark.disabled = theme !== "dark";
   }
 
+  // HTML プレビューブロック: プレビュー / ソース 切替 + iframe 高さ自動調整。
+  // iframe は sandbox="allow-same-origin" (scripts なし) なので、
+  // 親から contentDocument.documentElement.scrollHeight を読んで height をセットできる。
+  function setHtmlBlockMode(block, mode) {
+    if (!block) return;
+    const next = mode === "source" ? "source" : "preview";
+    if (block.getAttribute("data-mdview-mode") === next) return;
+    block.setAttribute("data-mdview-mode", next);
+    const tabs = block.querySelectorAll("[data-mdview-target]");
+    tabs.forEach((tab) => {
+      const isCurrent = tab.getAttribute("data-mdview-target") === next;
+      tab.setAttribute("aria-selected", isCurrent ? "true" : "false");
+      tab.setAttribute("tabindex", isCurrent ? "0" : "-1");
+    });
+    const source = block.querySelector(".mdview-html-source");
+    if (source) {
+      if (next === "source") source.removeAttribute("hidden");
+      else source.setAttribute("hidden", "");
+    }
+  }
+
+  function adjustHtmlFrameHeight(frame) {
+    try {
+      const doc = frame.contentDocument;
+      if (!doc || !doc.documentElement) return;
+      const h = Math.max(
+        doc.documentElement.scrollHeight,
+        doc.body ? doc.body.scrollHeight : 0,
+      );
+      if (h > 0) frame.style.height = h + "px";
+    } catch (e) {
+      console.warn("[mdview] iframe height adjust failed", e);
+    }
+  }
+
+  function setupHtmlBlocks() {
+    const blocks = document.querySelectorAll(".mdview-html-block");
+    blocks.forEach((block) => {
+      if (block.dataset.mdviewHtmlReady === "1") return;
+      block.dataset.mdviewHtmlReady = "1";
+
+      block.addEventListener("click", (e) => {
+        const tab = e.target.closest("[data-mdview-target]");
+        if (!tab || !block.contains(tab)) return;
+        setHtmlBlockMode(block, tab.getAttribute("data-mdview-target"));
+      });
+      block.addEventListener("keydown", (e) => {
+        const tab = e.target.closest && e.target.closest("[data-mdview-target]");
+        if (!tab) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setHtmlBlockMode(block, tab.getAttribute("data-mdview-target"));
+        } else if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+          e.preventDefault();
+          const tabs = Array.from(block.querySelectorAll("[data-mdview-target]"));
+          if (tabs.length === 0) return;
+          const idx = tabs.indexOf(tab);
+          const dir = e.key === "ArrowRight" ? 1 : -1;
+          const nextTab = tabs[(idx + dir + tabs.length) % tabs.length];
+          setHtmlBlockMode(block, nextTab.getAttribute("data-mdview-target"));
+          nextTab.focus();
+        }
+      });
+
+      const frame = block.querySelector(".mdview-html-frame");
+      if (frame) {
+        const onLoad = () => adjustHtmlFrameHeight(frame);
+        frame.addEventListener("load", onLoad);
+        // srcdoc は load が既に完了している場合があるため、即時にも試行する。
+        adjustHtmlFrameHeight(frame);
+      }
+    });
+
+    // ウィンドウ幅変更 (= iframe 内のレイアウト再計算) でも高さを追従させる。
+    if (blocks.length > 0 && !window.__mdviewHtmlResizeBound) {
+      window.__mdviewHtmlResizeBound = true;
+      let raf = 0;
+      window.addEventListener("resize", () => {
+        if (raf) cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => {
+          document
+            .querySelectorAll(".mdview-html-frame")
+            .forEach((f) => adjustHtmlFrameHeight(f));
+        });
+      });
+    }
+  }
+
   // 自動リロード: ファイル変更をサーバから SSE で受け取り、
   // スクロール位置を sessionStorage に退避してから location.reload() する。
   const SCROLL_KEY = "mdview:scrollY";
@@ -339,6 +489,7 @@ const SCRIPT = `
     applyHljsTheme(currentTheme());
     applyHljs();
     applyMermaid(currentTheme());
+    setupHtmlBlocks();
     startLiveReload();
 
     if (btn) {
