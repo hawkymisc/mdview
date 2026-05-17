@@ -26,6 +26,51 @@ export const test = base.extend({
     mkdirSync(path.join(dir, "assets"));
     writeFileSync(path.join(dir, "assets", "logo.png"), "PNG_DUMMY");
 
+    // サイドバーのファイル一覧 / SPA 遷移テスト用に、追加 .md とサブディレクトリも置く。
+    // 単体 md を見るテスト (mermaid / theme / live-reload 等) からは無視される。
+    writeFileSync(
+      path.join(dir, "sibling.md"),
+      "# Sibling\n\n## Sibling section\n\nbody from sibling.\n",
+    );
+    mkdirSync(path.join(dir, "guides"));
+    writeFileSync(
+      path.join(dir, "guides", "basics.md"),
+      [
+        "# Basics",
+        "",
+        "## First section",
+        "",
+        "intro text.",
+        "",
+        "### Detail one",
+        "",
+        "detail body.",
+        "",
+        "### Detail two",
+        "",
+        "more detail.",
+        "",
+        "## Second section",
+        "",
+        "second body.",
+      ].join("\n"),
+    );
+    writeFileSync(
+      path.join(dir, "guides", "advanced.md"),
+      "# Advanced\n\n## Topic\n\nadvanced body.\n",
+    );
+    // 日本語ファイル名のサンプル
+    writeFileSync(
+      path.join(dir, "guides", "概要.md"),
+      "# 概要\n\n## 詳細\n\njapanese body.\n",
+    );
+    // 走査範囲外 (2 階層目) — サイドバーに出ないことを検証するため
+    mkdirSync(path.join(dir, "guides", "nested"));
+    writeFileSync(
+      path.join(dir, "guides", "nested", "deep.md"),
+      "# Deep\n",
+    );
+
     const server = await createMdviewServer({ filePath: mdPath, port: 0 });
     try {
       await use({

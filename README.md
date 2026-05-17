@@ -6,6 +6,7 @@
 
 - 🌗 ライト / ダーク テーマ切替 (`prefers-color-scheme` に追従、`localStorage` で記憶)
 - 🧜 [Mermaid](https://mermaid.js.org/) 図のレンダリング (`` ```mermaid `` ブロック)
+- 🧭 **左サイドバーで TOC + 同階層 / 直下サブディレクトリの `.md` を一覧表示**。リンククリックで軽量 SPA 遷移 (`history.pushState`)
 - 🔄 ファイル変更を検知して**ブラウザを自動リロード** (Server-Sent Events、依存追加なし)
 - 🎨 [highlight.js](https://highlightjs.org/) によるコードブロックのシンタックスハイライト (テーマ連動)
 - 🖼  Markdown と同ディレクトリ配下の画像・アセットを自動配信
@@ -64,15 +65,20 @@ mdview slides.md --host 0.0.0.0 --port 4000
 ターミナル
   └─ mdview file.md
        └─ Node.js HTTP server (127.0.0.1:PORT)
-            ├─ GET  /                  → Markdown を HTML にレンダリングして返す
-            ├─ GET  /raw               → 生 Markdown テキスト
-            ├─ GET  /__mdview/events   → Server-Sent Events (ファイル変更通知)
-            └─ GET  /<asset>           → file.md と同じディレクトリから静的配信
-                                         (パストラバーサル防御あり)
+            ├─ GET  /                       → Markdown を HTML にレンダリングして返す
+            ├─ GET  /raw                    → 起動 md の生 Markdown テキスト
+            ├─ GET  /__mdview/files         → 同階層 + 直下サブ 1 階層の .md 一覧 (JSON)
+            ├─ GET  /__mdview/fragment?path → 指定 .md の <main> innerHTML (SPA 用)
+            ├─ GET  /__mdview/events?path   → SSE (ファイル変更通知, path 指定可)
+            ├─ GET  /<path>.md              → Accept: text/html ならレンダリング HTML
+            │                                  それ以外は raw md (?raw=1 で強制 raw)
+            └─ GET  /<asset>                → file.md と同じディレクトリから静的配信
+                                              (パストラバーサル防御あり)
 ブラウザ
   ├─ HTML を表示 (CSS 変数でテーマ切替)
   ├─ Mermaid.js (CDN) が `<pre class="mermaid">` ブロックを SVG に変換
-  └─ EventSource("/__mdview/events") を購読し、`reload` 受信時に
+  ├─ サイドバーの .md リンクは fetch + main innerHTML 差替 + pushState で SPA 遷移
+  └─ EventSource("/__mdview/events?path=...") を購読し、`reload` 受信時に
      スクロール位置を退避 → location.reload() を実行
 ```
 
@@ -104,6 +110,7 @@ npm run test:e2e # E2E (Playwright + Chromium、初回は npx playwright install
 - `e2e/theme.spec.js` — テーマ切替 (メニュー開閉、キーボード操作、`prefers-color-scheme` 連動、localStorage 永続化)
 - `e2e/syntax-highlight.spec.js` — hljs クラス付与、テーマ連動でスタイルシート切替、Mermaid 非干渉
 - `e2e/mermaid.spec.js` — `pre.mermaid` 内に `<svg>` が描画されること
+- `e2e/sidebar.spec.js` — サイドバー表示 / 折りたたみ永続化 / SPA 遷移 / 戻る進む / 直接 deep URL / TOC アンカー / 日本語名 / モバイル overlay
 - `e2e/live-reload.spec.js` — ファイル変更で自動リロード、スクロール / テーマの維持
 
 各 E2E テストは `createMdviewServer` を使って tmp ディレクトリに独立した mdview サーバを立ち上げるため、テスト間で状態が干渉しません。
@@ -125,10 +132,14 @@ npm run test:e2e # E2E (Playwright + Chromium、初回は npx playwright install
 mdview/
 ├── bin/mdview.js     CLI エントリ (parseArgs + ブラウザ起動)
 ├── src/
-│   ├── render.js     Markdown → HTML (marked + カスタムレンダラ)
-│   ├── server.js     HTTP サーバー (静的配信 + パストラバーサル防御)
-│   └── template.js   HTML シェル / CSS (テーマ) / クライアント側スクリプト
-├── samples/demo.md   動作確認用サンプル
+│   ├── render.js     Markdown → HTML (marked + カスタムレンダラ、見出し ID 付与)
+│   ├── server.js     HTTP サーバー (静的配信 + パストラバーサル防御 + サイドバー API)
+│   ├── paths.js      パス正規化ユーティリティ (server/client 共通規約)
+│   └── template.js   HTML シェル / CSS (テーマ / サイドバー) / クライアント側スクリプト
+├── samples/          動作確認用サンプル (サブディレクトリ構造)
+│   ├── demo.md
+│   ├── guides/{basics,advanced,概要}.md
+│   └── reference/api.md
 ├── test/             ユニット (node --test)
 └── e2e/              E2E (Playwright)
     └── fixtures/     共通フィクスチャ + サンプル Markdown
@@ -144,10 +155,20 @@ mdview/
 - 自前コードの静的セキュリティ解析は **CodeQL** が push / PR / weekly (毎週月曜 13:37 JST) で実行します (`.github/workflows/codeql.yml`)。検知結果は GitHub リポジトリの **Security タブ** で確認・トリアージしてください。CodeQL の結果は現状 Required check には含めていない (情報提供レーン) ので、main マージは block しません。
 - `--host 0.0.0.0` で外部にバインドする場合は **信頼できるネットワーク内** でのみ使用してください。
 
+## Breaking changes (v0.5)
+
+- `GET /<path>.md` の挙動が `Accept` ヘッダで分岐するようになりました。
+  - `Accept: text/html` (= ブラウザ直接アクセス) → 自動的にレンダリング済み HTML を返します
+  - `Accept: */*` (= curl のデフォルト) → 従来通り raw markdown を返します
+  - `?raw=1` クエリで Accept に関わらず強制 raw (スクリプト向けエスケープハッチ)
+- 既存スクリプトが `curl` 経由で `.md` を取得していた場合は影響ありません。ブラウザ直アクセスで raw が欲しいときは `?raw=1` を付与してください。
+
 ## Limitations / Roadmap
 
-- 複数ファイル / ファイルツリーは未対応
+- ファイル一覧の走査範囲は **同階層 + 直下サブディレクトリ (1 階層のみ)**。深いツリーは v0.5 では非対応 (将来検討)
+- サイドバーは常時 ON。`--no-sidebar` 等の opt-out フラグは v0.5 では未提供
 - ファイル監視は **Markdown 本体と同ディレクトリ** のみ (画像差し替え時のリロードは対象外。次バージョンで検討)
+- 日本語見出しの slug は `encodeURIComponent` fallback (URL hash は動作するが見栄え劣)。完全な transliteration は依存追加になるため対象外
 - highlight.js のテーマは GitHub light/dark 固定 (`@highlightjs/cdn-assets` の `styles/` から差し替え可能だが、現状は CLI フラグなし)
 
 ## License

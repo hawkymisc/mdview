@@ -122,7 +122,9 @@ describe("createMdviewServer", () => {
 
   test("HTML 本体に SSE 購読クライアントが埋め込まれている", async () => {
     const res = await fetchText(`${baseUrl}/`);
-    assert.match(res.body, /new EventSource\(['"]\/__mdview\/events['"]\)/);
+    // EventSource を /__mdview/events に対して生成している痕跡
+    assert.match(res.body, /new EventSource\(/);
+    assert.match(res.body, /\/__mdview\/events/);
     // reload イベントを購読していることを示す痕跡
     assert.match(res.body, /addEventListener\(['"]reload['"]/);
   });
@@ -252,6 +254,186 @@ describe("createMdviewServer", () => {
     } finally {
       ac.abort();
     }
+  });
+});
+
+describe("createMdviewServer — サイドバー API", () => {
+  let dir;
+  let mdPath;
+  let server;
+  let baseUrl;
+
+  before(async () => {
+    dir = mkdtempSync(path.join(tmpdir(), "mdview-sidebar-"));
+    mdPath = path.join(dir, "demo.md");
+    writeFileSync(mdPath, "# Demo\n\n## Section A\n\n## Section B\n");
+    writeFileSync(path.join(dir, "README.md"), "# README\n");
+    writeFileSync(path.join(dir, "ignore.txt"), "not markdown");
+    mkdirSync(path.join(dir, "guides"));
+    writeFileSync(path.join(dir, "guides", "basics.md"), "# Basics\n");
+    writeFileSync(path.join(dir, "guides", "advanced.md"), "# Advanced\n");
+    writeFileSync(path.join(dir, "guides", "concept.png"), "PNG");
+    mkdirSync(path.join(dir, "reference"));
+    writeFileSync(path.join(dir, "reference", "api.md"), "# API\n");
+    // 隠しディレクトリは除外されるべき
+    mkdirSync(path.join(dir, ".hidden"));
+    writeFileSync(path.join(dir, ".hidden", "secret.md"), "# Secret\n");
+    // 空ディレクトリ (md 無し) は出さない
+    mkdirSync(path.join(dir, "empty"));
+    // 2 階層目は走査範囲外なので listing には含まれない
+    mkdirSync(path.join(dir, "guides", "nested"));
+    writeFileSync(path.join(dir, "guides", "nested", "deep.md"), "# Deep\n");
+
+    server = await createMdviewServer({ filePath: mdPath, port: 0 });
+    baseUrl = `http://127.0.0.1:${server.port}`;
+  });
+
+  after(async () => {
+    await server.close();
+  });
+
+  test("GET /__mdview/files は JSON で同階層 + 直下サブの .md を返す", async () => {
+    const res = await fetchText(`${baseUrl}/__mdview/files`);
+    assert.equal(res.status, 200);
+    assert.match(res.contentType, /application\/json/);
+    const json = JSON.parse(res.body);
+    assert.equal(json.root, "demo.md");
+    const fileNames = json.files.map((f) => f.name);
+    assert.ok(fileNames.includes("demo.md"));
+    assert.ok(fileNames.includes("README.md"));
+    assert.ok(!fileNames.includes("ignore.txt"));
+    const dirNames = json.directories.map((d) => d.name);
+    assert.ok(dirNames.includes("guides"));
+    assert.ok(dirNames.includes("reference"));
+    assert.ok(!dirNames.includes("empty"), "空ディレクトリは含めない");
+    assert.ok(!dirNames.includes(".hidden"), "隠しディレクトリは除外");
+  });
+
+  test("/__mdview/files は 2 階層目を含まない (走査範囲: 1 階層のみ)", async () => {
+    const res = await fetchText(`${baseUrl}/__mdview/files`);
+    const json = JSON.parse(res.body);
+    const guides = json.directories.find((d) => d.name === "guides");
+    assert.ok(guides);
+    const subFileNames = guides.files.map((f) => f.name);
+    assert.ok(subFileNames.includes("basics.md"));
+    assert.ok(subFileNames.includes("advanced.md"));
+    assert.ok(!subFileNames.includes("nested"));
+    assert.ok(!subFileNames.includes("deep.md"));
+    assert.ok(!subFileNames.includes("concept.png"));
+  });
+
+  test("/__mdview/files のファイル名は安定ソートされている", async () => {
+    const res = await fetchText(`${baseUrl}/__mdview/files`);
+    const json = JSON.parse(res.body);
+    const guides = json.directories.find((d) => d.name === "guides");
+    const names = guides.files.map((f) => f.name);
+    // advanced.md < basics.md (alphabetical, case-insensitive)
+    assert.deepEqual(names, ["advanced.md", "basics.md"]);
+  });
+
+  test("GET /__mdview/fragment?path=guides/basics.md は main innerHTML を返す", async () => {
+    const res = await fetchText(
+      `${baseUrl}/__mdview/fragment?path=guides/basics.md`,
+    );
+    assert.equal(res.status, 200);
+    assert.match(res.contentType, /text\/html/);
+    assert.match(res.body, /<h1[^>]*>Basics<\/h1>/);
+    // フルページではなく fragment (= <html> / <body> を含まない)
+    assert.doesNotMatch(res.body, /<html/);
+    assert.doesNotMatch(res.body, /<body/);
+  });
+
+  test("/__mdview/fragment は X-Mdview-Title ヘッダを返す", async () => {
+    const res = await fetch(
+      `${baseUrl}/__mdview/fragment?path=guides/basics.md`,
+    );
+    const title = res.headers.get("x-mdview-title");
+    assert.equal(decodeURIComponent(title ?? ""), "basics.md");
+    await res.text();
+  });
+
+  test("/__mdview/fragment?path=../etc/passwd は 403 を返す", async () => {
+    const res = await fetchText(
+      `${baseUrl}/__mdview/fragment?path=../etc/passwd`,
+    );
+    assert.equal(res.status, 400);
+  });
+
+  test("/__mdview/fragment?path=foo.txt は 400 (拡張子チェック)", async () => {
+    const res = await fetchText(`${baseUrl}/__mdview/fragment?path=ignore.txt`);
+    assert.equal(res.status, 400);
+  });
+
+  test("/__mdview/fragment?path=guides/nested/deep.md は 403 (走査範囲外)", async () => {
+    const res = await fetchText(
+      `${baseUrl}/__mdview/fragment?path=guides/nested/deep.md`,
+    );
+    assert.equal(res.status, 403);
+  });
+
+  test("/__mdview/fragment?path=nonexistent.md は 404", async () => {
+    const res = await fetchText(`${baseUrl}/__mdview/fragment?path=missing.md`);
+    assert.equal(res.status, 404);
+  });
+
+  test("GET /guides/basics.md は Accept: text/html で rendered HTML を返す", async () => {
+    const res = await fetch(`${baseUrl}/guides/basics.md`, {
+      headers: { accept: "text/html" },
+    });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") ?? "", /text\/html/);
+    const body = await res.text();
+    assert.match(body, /<html/);
+    assert.match(body, /<h1[^>]*>Basics<\/h1>/);
+  });
+
+  test("GET /guides/basics.md は Accept: */* で raw markdown を返す (後方互換)", async () => {
+    const res = await fetch(`${baseUrl}/guides/basics.md`, {
+      headers: { accept: "*/*" },
+    });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") ?? "", /text\/markdown/);
+    const body = await res.text();
+    assert.equal(body, "# Basics\n");
+  });
+
+  test("GET /guides/basics.md?raw=1 は Accept: text/html でも raw を返す (エスケープハッチ)", async () => {
+    const res = await fetch(`${baseUrl}/guides/basics.md?raw=1`, {
+      headers: { accept: "text/html" },
+    });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get("content-type") ?? "", /text\/markdown/);
+    const body = await res.text();
+    assert.equal(body, "# Basics\n");
+  });
+
+  test("GET /__mdview/events?path=guides/basics.md は当該ファイルの変更を reload 配信", async () => {
+    const ac = new AbortController();
+    try {
+      const res = await fetch(
+        `${baseUrl}/__mdview/events?path=guides/basics.md`,
+        { signal: ac.signal },
+      );
+      assert.equal(res.status, 200);
+      const reader = res.body.getReader();
+      await delay(150);
+      writeFileSync(path.join(dir, "guides", "basics.md"), "# Updated Basics\n");
+      const buf = await readUntil(
+        reader,
+        (b) => /event:\s*reload/.test(b),
+        3000,
+      );
+      assert.match(buf, /event:\s*reload/);
+    } finally {
+      ac.abort();
+    }
+  });
+
+  test("/__mdview/events?path=../etc/passwd は 403 を返す", async () => {
+    const res = await fetchText(
+      `${baseUrl}/__mdview/events?path=../etc/passwd`,
+    );
+    assert.equal(res.status, 403);
   });
 });
 

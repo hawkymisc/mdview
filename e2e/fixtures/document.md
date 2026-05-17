@@ -24,6 +24,12 @@ graph LR
   B -->|no| A
 ```
 
+## Related docs
+
+- [Basics](./guides/basics.md)
+- [Advanced](./guides/advanced.md)
+- [Sibling](./sibling.md)
+
 ## Image
 
 ![logo](./assets/logo.png)

@@ -60,6 +60,71 @@ describe("renderMarkdown", () => {
     });
   });
 
+  describe("見出し ID 付与 (TOC / アンカー用)", () => {
+    test("h1-h6 に id 属性が付く", () => {
+      const md = "# H1\n## H2\n### H3\n#### H4\n##### H5\n###### H6";
+      const html = renderMarkdown(md);
+      assert.match(html, /<h1[^>]*id="h1"[^>]*>H1<\/h1>/);
+      assert.match(html, /<h2[^>]*id="h2"[^>]*>H2<\/h2>/);
+      assert.match(html, /<h3[^>]*id="h3"[^>]*>H3<\/h3>/);
+      assert.match(html, /<h4[^>]*id="h4"[^>]*>H4<\/h4>/);
+      assert.match(html, /<h5[^>]*id="h5"[^>]*>H5<\/h5>/);
+      assert.match(html, /<h6[^>]*id="h6"[^>]*>H6<\/h6>/);
+    });
+
+    test("英数のみの slug は小文字 + ハイフン化される", () => {
+      const html = renderMarkdown("## Hello World");
+      assert.match(html, /<h2[^>]*id="hello-world"[^>]*>Hello World<\/h2>/);
+    });
+
+    test("記号や連続空白は単一ハイフンに圧縮される", () => {
+      const html = renderMarkdown("## Foo!!  Bar -- Baz");
+      assert.match(html, /<h2[^>]*id="foo-bar-baz"[^>]*>/);
+    });
+
+    test("先頭末尾のハイフンは trim される", () => {
+      const html = renderMarkdown("## !!! Hello !!!");
+      assert.match(html, /<h2[^>]*id="hello"[^>]*>/);
+    });
+
+    test("同じテキストの見出しは連番サフィックスが付く", () => {
+      const md = "## API\n## API\n## API";
+      const html = renderMarkdown(md);
+      assert.match(html, /<h2[^>]*id="api"[^>]*>API<\/h2>/);
+      assert.match(html, /<h2[^>]*id="api-2"[^>]*>API<\/h2>/);
+      assert.match(html, /<h2[^>]*id="api-3"[^>]*>API<\/h2>/);
+    });
+
+    test("日本語見出しは encodeURIComponent fallback が使われる", () => {
+      const html = renderMarkdown("## 概要");
+      // encodeURIComponent("概要") = "%E6%A6%82%E8%A6%81"
+      assert.match(
+        html,
+        /<h2[^>]*id="%E6%A6%82%E8%A6%81"[^>]*>概要<\/h2>/,
+      );
+    });
+
+    test("英数 + 日本語の混在見出しは英数部分が slug 化される", () => {
+      const html = renderMarkdown("## API 概要");
+      // 英数 "api" が拾えるので "api" になる
+      assert.match(html, /<h2[^>]*id="api"[^>]*>API 概要<\/h2>/);
+    });
+
+    test("インラインコードを含む見出しでも id が付く", () => {
+      const html = renderMarkdown("## Use `npm` here");
+      assert.match(html, /<h2[^>]*id="use-npm-here"[^>]*>/);
+    });
+
+    test("renderMarkdown を複数回呼んでも slug counter は独立 (グローバル汚染なし)", () => {
+      const h1 = renderMarkdown("## API");
+      const h2 = renderMarkdown("## API");
+      assert.match(h1, /id="api"/);
+      assert.match(h2, /id="api"/);
+      assert.doesNotMatch(h1, /id="api-2"/);
+      assert.doesNotMatch(h2, /id="api-2"/);
+    });
+  });
+
   describe("画像", () => {
     test("相対パスの画像は src がそのまま維持される (サーバ側で静的配信する前提)", () => {
       const html = renderMarkdown("![alt](./img/logo.png)");
