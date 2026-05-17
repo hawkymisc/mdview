@@ -6,7 +6,7 @@
 
 - 🌗 ライト / ダーク テーマ切替 (`prefers-color-scheme` に追従、`localStorage` で記憶)
 - 🧜 [Mermaid](https://mermaid.js.org/) 図のレンダリング (`` ```mermaid `` ブロック)
-- 🧭 **左サイドバーで TOC + 同階層 / 直下サブディレクトリの `.md` を一覧表示**。リンククリックで軽量 SPA 遷移 (`history.pushState`)
+- 🧭 **左サイドバーで TOC + 同階層 / 直下サブディレクトリの `.md` を一覧表示**。TOC はデフォルト h2 のみ、閲覧中のセクション内のみ h3 / h4 を展開。リンククリックで軽量 SPA 遷移 (`history.pushState`)
 - 🔄 ファイル変更を検知して**ブラウザを自動リロード** (Server-Sent Events、依存追加なし)
 - 🎨 [highlight.js](https://highlightjs.org/) によるコードブロックのシンタックスハイライト (テーマ連動)
 - 🖼  Markdown と同ディレクトリ配下の画像・アセットを自動配信

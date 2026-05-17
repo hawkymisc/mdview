@@ -9,18 +9,51 @@ test.describe("サイドバー: デスクトップ初期表示", () => {
     await expect(page.locator(".mdview-sidebar")).toBeVisible();
   });
 
-  test("TOC に h2/h3 が表示される (h4-h6 は初期非表示)", async ({
+  test("TOC は default で h2 のみ可視 (active-section なしのとき h3 は隠れる)", async ({
     page,
     mdview,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto(mdview.baseUrl);
+    // basics.md は h2 (First section, Second section) + h3 (Detail one, Detail two)
+    await page.goto(`${mdview.baseUrl}/guides/basics.md`);
+    // IntersectionObserver が付ける active-section をいったん外し、
+    // CSS の「default 表示状態」を直接検証する。
+    await page.evaluate(() => {
+      document
+        .querySelectorAll(".mdview-toc-list li[data-active-section]")
+        .forEach((li) => li.removeAttribute("data-active-section"));
+    });
     const toc = page.locator(".mdview-toc-list");
-    // document.md には複数 h2 がある
     await expect(toc).toBeVisible();
     await expect(
-      toc.locator("a", { hasText: "Code blocks" }),
+      toc.locator('li[data-toc-level="2"]', { hasText: "First section" }),
     ).toBeVisible();
+    await expect(
+      toc.locator('li[data-toc-level="2"]', { hasText: "Second section" }),
+    ).toBeVisible();
+    await expect(
+      toc.locator('li[data-toc-level="3"]', { hasText: "Detail one" }),
+    ).toBeHidden();
+  });
+
+  test("active な h2 セクション配下の h3 / h4 は展開される", async ({
+    page,
+    mdview,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(`${mdview.baseUrl}/guides/basics.md`);
+    // h2 li に直接 active-section を立てて CSS を検証 (IntersectionObserver の
+    // タイミング依存を避けるため、CSS ルール自体の正しさを確認する)
+    await page.evaluate(() => {
+      const h2 = document.querySelector(
+        '.mdview-toc-list li[data-toc-level="2"]',
+      );
+      if (h2) h2.setAttribute("data-active-section", "true");
+    });
+    const detailLi = page.locator('li[data-toc-level="3"]', {
+      hasText: "Detail one",
+    });
+    await expect(detailLi).toBeVisible();
   });
 
   test("ファイル一覧が描画される (同階層 + 直下サブ)", async ({
@@ -145,9 +178,15 @@ test.describe("SPA ファイル遷移", () => {
   test("ブラウザの戻るで元のページに復帰", async ({ page, mdview }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto(mdview.baseUrl);
-    await page.locator('.mdview-files-list a[href="/guides/basics.md"]').click();
+    await page
+      .locator('.mdview-files-list a[href="/guides/basics.md"]')
+      .click();
+    // pushState 完了を URL 変更で同期 (これを待たずに goBack すると
+    // playwright が直前の about:blank までキャンセルしてしまう)
+    await expect(page).toHaveURL(/\/guides\/basics\.md$/);
     await page.goBack();
-    await expect(page).toHaveURL(mdview.baseUrl + "/");
+    // baseUrl は末尾 / の有無があり得る ("http://127.0.0.1:PORT" or 同 "/")
+    await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/?$/);
     await expect(
       page.locator("main.markdown-body h1").first(),
     ).toHaveText(/E2E Test Document/);

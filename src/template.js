@@ -316,15 +316,20 @@ main.markdown-body input[type="checkbox"] { margin-right: 0.3em; }
   vertical-align: middle;
   border-radius: 2px;
 }
-.mdview-toc-level-3 a { padding-left: 1.4em; }
-/* 深い見出し (h4-h6) は active 系統のときだけ表示 */
-.mdview-toc-deep {
+/* デフォルトは h2 のみ可視。h3-h6 は隠す。
+   読んでいる (active な) h2 セクション内のみ h3 / h4 を展開表示する。
+   h5 / h6 は常に hidden (busy 回避)。 */
+.mdview-toc-list li[data-toc-level="3"],
+.mdview-toc-list li[data-toc-level="4"],
+.mdview-toc-list li[data-toc-level="5"],
+.mdview-toc-list li[data-toc-level="6"] {
   display: none;
 }
-.mdview-toc-list li[data-active-branch="true"] > .mdview-toc-deep,
-.mdview-toc-list li[data-active-branch="true"] > ul .mdview-toc-deep {
+.mdview-toc-list li[data-active-section="true"] li[data-toc-level="3"],
+.mdview-toc-list li[data-active-section="true"] li[data-toc-level="4"] {
   display: block;
 }
+.mdview-toc-level-3 a { padding-left: 1.4em; font-size: 0.84rem; }
 .mdview-toc-level-4 a { padding-left: 2.2em; font-size: 0.82rem; }
 .mdview-toc-level-5 a { padding-left: 3.0em; font-size: 0.80rem; }
 .mdview-toc-level-6 a { padding-left: 3.8em; font-size: 0.78rem; }
@@ -730,15 +735,13 @@ const SCRIPT = `
     list.innerHTML = "";
     headings.forEach((h) => {
       const level = parseInt(h.tagName.slice(1), 10);
-      const isDeep = level >= 4;
       // 親 UL を見つける (level - 1 以下まで stack を巻き戻す)
       while (stack.length > 1 && stack[stack.length - 1].level >= level) {
         stack.pop();
       }
       const parent = stack[stack.length - 1].ul;
       const li = document.createElement("li");
-      li.className =
-        "mdview-toc-level-" + level + (isDeep ? " mdview-toc-deep" : "");
+      li.className = "mdview-toc-level-" + level;
       li.dataset.tocLevel = String(level);
       const a = document.createElement("a");
       const id = h.id;
@@ -796,8 +799,8 @@ const SCRIPT = `
     list.querySelectorAll("a[data-toc-target]").forEach((a) => {
       a.removeAttribute("data-active");
     });
-    list.querySelectorAll("li[data-active-branch]").forEach((li) => {
-      li.removeAttribute("data-active-branch");
+    list.querySelectorAll("li[data-active-section]").forEach((li) => {
+      li.removeAttribute("data-active-section");
     });
     if (!activeId) return;
     const link = list.querySelector(
@@ -805,10 +808,14 @@ const SCRIPT = `
     );
     if (!link) return;
     link.setAttribute("data-active", "true");
-    // 祖先 li に active-branch を伝播 (h4-h6 deep を見せる)
+    // active link を含む最近接の h2 (data-toc-level="2") 祖先 li に
+    // active-section を立て、その配下の h3 / h4 だけ CSS で展開する。
     let li = link.closest("li");
     while (li) {
-      li.setAttribute("data-active-branch", "true");
+      if (li.dataset.tocLevel === "2") {
+        li.setAttribute("data-active-section", "true");
+        break;
+      }
       li = li.parentElement?.closest("li") || null;
     }
   }
